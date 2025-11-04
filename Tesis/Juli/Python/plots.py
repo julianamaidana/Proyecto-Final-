@@ -179,3 +179,38 @@ def plot_freq_responses_db(w_final, h_float, pad_n=4096, title="H(f), W(f) y H·
     plt.ylabel("magnitud [dB]")
     plt.title(title)
     plt.grid(True, alpha=0.3); plt.legend(); plt.tight_layout(); plt.show()
+
+def plot_ber_vs_mu(mus, ber_mean, ber_std=None, title=None, annotate_min=True):
+    """
+    Grafica BER (eje Y) vs paso de adaptación μ (eje X, log).
+    - mus: array de μ (>0)
+    - ber_mean: BER promedio por μ
+    - ber_std (opcional): desvío/errores por μ para sombrear
+    """
+    mus = np.asarray(mus)
+    ber_mean = np.asarray(ber_mean)
+
+    idx_min = int(np.nanargmin(ber_mean))
+
+    plt.figure(figsize=(7.5, 4.5))
+    plt.loglog(mus, ber_mean, 'o-', linewidth=1)
+    if ber_std is not None:
+        lo = np.maximum(1e-12, ber_mean - ber_std)
+        hi = ber_mean + ber_std
+        plt.fill_between(mus, lo, hi, alpha=0.15, step=None)
+
+    plt.grid(True, which='both', linestyle=':')
+    plt.xlabel('Paso de adaptación μ')
+    plt.ylabel('BER')
+    if title:
+        plt.title(title)
+
+    if annotate_min:
+        plt.plot(mus[idx_min], ber_mean[idx_min], 's', markersize=6)
+        plt.annotate(f'μ*={mus[idx_min]:.2e}\nBER={ber_mean[idx_min]:.2g}',
+                     (mus[idx_min], ber_mean[idx_min]),
+                     textcoords='offset points', xytext=(8, 8))
+
+    plt.tight_layout()
+    plt.show()
+    return idx_min, mus[idx_min], float(ber_mean[idx_min])
