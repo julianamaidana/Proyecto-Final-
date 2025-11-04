@@ -8,7 +8,7 @@ from pbfdaf_lms import ffe_lms_freq_iq
 from metrics import ber as _ber
 from plots import (
     plot_weights_labeled, plot_filter_profile, plot_channel_profile, plot_combined_response,
-    plot_time_iq_complex, plot_constellation, plot_freq_responses_db, sym_ylim
+    plot_time_iq_complex, plot_constellation, plot_freq_responses_db, sym_ylim, plot_ber_vs_mu
 )
 from math import erfc as _erfc_scalar  
 
@@ -305,7 +305,45 @@ def plot_ber_curve(results, title="BER vs SNR"):
     plt.title(title)
     plt.legend()
     plt.tight_layout()
+    
+    
+def measure_ber_vs_mu(SNR_dB=8.0, mus=None, repeats=3,
+                      NSYM=10000, skip=2000, min_overlap=256):
+    if mus is None:
+        mus = np.logspace(-4, -1, 16)
 
+    ber_means, ber_stds = [], []
+
+    for mu in mus:
+        vals = []
+        for r in range(repeats):
+            sim = equalizerSimulator(NSYM=NSYM, SNR_dB=SNR_dB)
+            sim.gen_source()
+            sim.pass_channel(sim.s)
+
+            # μ fijo (sin conmutar)
+            step = make_mu_switch(mu_init=mu, mu_final=mu, enable=False)
+            y, yhat, e, W_hist, k0 = ffe_lms_freq_iq(
+                xI=sim.xI, xQ=sim.xQ, yI=sim.yI, yQ=sim.yQ,
+                L_EQ=sim.L_EQ, PART_N=sim.PART_N, center_tap=sim.CENTER_TAP,
+                mu_step=step, eps=sim.EPS, max_iter=None
+            )
+            sim.yI, sim.yQ = y.real, y.imag
+
+            res = sim.ber(lag=k0, win=4*sim.PART_N, mN=8,
+                          skip=skip, min_overlap=min_overlap)
+
+            # soportar dict o tupla
+            if isinstance(res, dict):
+                ber_val = res["BER"]; Nbits = res["Nbits"]
+            else:
+                ber_val, _, _, Nbits, *_ = res
+            vals.append(ber_val)
+
+        ber_means.append(np.mean(vals))
+        ber_stds.append(np.std(vals, ddof=1) if repeats > 1 else 0.0)
+
+    return np.array(mus), np.array(ber_means), np.array(ber_stds)
 
 # main 
 if __name__ == "__main__":
@@ -367,7 +405,7 @@ if __name__ == "__main__":
     print("BER:", res)
 
     # sweep 
-    RUN_BER_SWEEP = True
+    RUN_BER_SWEEP = False
     if RUN_BER_SWEEP:
         SNRS = list(range(0, 13, 1))  # inicio, fin, paso
         EQ_PARAMS = dict(
@@ -376,7 +414,7 @@ if __name__ == "__main__":
             PART_N           =  16,
             CENTER_TAP       =  None,
             MU               =  0.005,
-            MU_SWITCH_ENABLE =  True,
+            MU_SWITCH_ENABLE =  False,
             MU_FINAL         =  0.0002,
             N_SWITCH         =  1000,
             USE_STABLE       =  False,
@@ -417,7 +455,77 @@ if __name__ == "__main__":
         for r in results:
             print(f"SNR(Es/N0)={r['SNR']:>2} dB | BER={r['BER']:.3e} | Nbits={r['Nbits']}")
         plot_ber_curve(results, title="QPSK: BER teorica vs simulada")
-        plt.show()
+        
+    # === BER vs μ a SNR fija =====================================================
+    RUN_BER_VS_MU = True
+    if RUN_BER_VS_MU:
+        import numpy as np
+        from plots import plot_ber_vs_mu  # <- asegúrate de tener esta función en plots.py
+
+        # Parámetros del barrido
+        SNR_FIXED   = 20.0        # SNR (Es/N0) fija para el gráfico
+        MUS         = np.logspace(-4, -1, 20)  # rango de μ a probar
+        REPEATS     = 3           # promedios por μ para bajar el serrucho
+        NSYM        = 20000       # más símbolos si μ chico tarda en converger
+        SKIP        = 5000        # descarta transitorios antes de medir BER
+
+        # Config. del ecualizador/canal (μ lo sobreescribimos en el loop)
+        EQ_MU_PARAMS = dict(
+            CHAN_MODE        = "fir",
+            L_EQ             = 31,
+            PART_N           = 16,
+            CENTER_TAP       = None,
+            MU_SWITCH_ENABLE = False,   # μ fijo (sin conmutación)
+            MU_FINAL         = 0.0005,  # irrelevante si MU_SWITCH_ENABLE=False
+            N_SWITCH         = 500,
+            USE_STABLE       = False,
+            STABLE_WIN       = 300,
+            STABLE_TOL       = 1.0,
+            STABLE_PATIENCE  = 80,
+            H_TAPS = [ 0.9091025 +0.0000000j,
+                    0.2525285 +0.0631321j,
+                    -0.1893963 +0.0505057j,
+                    0.1515171 -0.0378793j,
+                    -0.1262642 +0.0252529j,
+                    0.1010114 -0.0252529j,
+                    0.0757585 +0.0126264j,
+                    -0.0631321 -0.0189396j,
+                    0.0505057 +0.0126264j,
+                    -0.0378793 -0.0101011j,
+                    0.0252529 +0.0063132j,
+                    0.0189396 +0.0037879j ],
+            NORM_H_POWER     = False,
+            SNR_REF          = "post",
+            seedI=0x17F,            # <-- agregar
+            seedQ=0x11D,
+        )
+
+        ber_vals = []
+        for i, mu in enumerate(MUS):
+            vals = []
+            for r in range(REPEATS):
+                sim_mu = equalizerSimulator(
+                    N_SYM            = NSYM,
+                    N_PLOT           = NSYM,
+                    N_SKIP           = 0,
+                    SNR_DB           = SNR_FIXED,
+                    SEED_NOISE       = 5678 + r,  # cambiar semilla entre repeticiones
+                    MU               = mu,
+                    **EQ_MU_PARAMS
+                ).run()
+
+                res = sim_mu.ber(skip=SKIP, win=4*sim_mu.PART_N, mN=8)
+                # soporta dict o tupla
+                if isinstance(res, dict):
+                    vals.append(res["BER"])
+                else:
+                    vals.append(res[0])
+
+            ber_vals.append(float(np.mean(vals)))
+
+        plot_ber_vs_mu(MUS, ber_vals, title=f'QPSK – BER vs μ (SNR={SNR_FIXED:.1f} dB)')
+
+    plt.show()
 
 
 """
