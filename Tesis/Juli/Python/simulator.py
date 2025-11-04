@@ -32,6 +32,38 @@ def suggest_center_tap(h, L_eq, pre_ratio=0.15):
         off = max(1, int(pre_ratio * L_eq))
         return min(k_peak + off, L_eq - 1)
 
+# --- NUEVA FUNCION AGREGADA ---
+def rcosine(beta, sps, num_symbols_half):
+    """ 
+    Respuesta al impulso del pulso de caida cosenoidal (RC).
+    Basado en tx_rcosine_procom.py
+    
+    beta (float): Factor de Roll-off (0 a 1).
+    sps (int): Samples per symbol (oversampling).
+    num_symbols_half (int): Cantidad de símbolos de "cola" a cada lado.
+    """
+    Tbaud = 1.0
+    Nbauds = num_symbols_half * 2 # Total de símbolos de longitud
+    
+    t_vect = np.arange(-0.5 * Nbauds * Tbaud, 0.5 * Nbauds * Tbaud, 
+                       float(Tbaud) / sps)
+
+    # Arreglar el punto exacto t=0 para evitar división por cero si beta=0
+    t_vect[t_vect == 0] = 1e-8 
+    
+    # Casos donde el denominador es cero (t = +/- Tbaud / (2*beta))
+    denom_zero_mask = (np.abs(1.0 - (2.0 * beta * t_vect / Tbaud)**2) < 1e-8)
+    t_vect[denom_zero_mask] = t_vect[denom_zero_mask] + 1e-8
+
+    # Fórmula del Raised Cosine
+    y_vect = np.sinc(t_vect / Tbaud) * (np.cos(np.pi * beta * t_vect / Tbaud) / 
+                                        (1.0 - (2.0 * beta * t_vect / Tbaud)**2))
+    
+    # Devolver como complejo y normalizar potencia
+    h_complex = np.array(y_vect, dtype=np.complex128)
+    return h_complex / np.sqrt(np.sum(np.abs(h_complex)**2))
+
+
 # clase del simulador 
 class equalizerSimulator:
     def __init__(self,
@@ -51,15 +83,33 @@ class equalizerSimulator:
         self.CHAN_MODE    = CHAN_MODE
         self.SNR_DB       = SNR_DB      # Es/N0(dB)
         self.SEED_NOISE   = SEED_NOISE
-        self.H_TAPS = (
-            np.array([
-                0.72+0.00j, 0.20+0.05j, -0.15+0.04j, 0.12-0.03j,
-               -0.10+0.02j, 0.08-0.02j, 0.06+0.01j, -0.05-0.015j,
-                0.04+0.01j, -0.03-0.008j, 0.02+0.005j, 0.015+0.003j
-            ], dtype=np.complex128)
-            if H_TAPS is None else np.asarray(H_TAPS, np.complex128)
-        )
         
+        # --- LOGICA DE CANAL MODIFICADA ---
+        if H_TAPS is None:
+            # Parámetros del canal RC "angosto"
+            sps       = 64        # sobremuestreo para construir el RC
+            beta      = 0.30      # achicar banda => más ISI
+            span_sym  = 9         # longitud impar del canal T-spaced
+            frac      = 0.10      # retardo fraccional opcional (0..1)
+
+            print(f"Generando canal RC: sps={sps}, beta={beta}, span={span_sym}, frac={frac}")
+
+            h_os = rcosine(beta=beta, sps=sps, num_symbols_half=span_sym//2 + 1)
+
+            # centro + fracción
+            c    = len(h_os)//2 + int(round(frac * sps))
+            half = span_sym//2
+            idx  = c + np.arange(-half, half+1) * sps
+            h_diezmado = h_os[idx.astype(int)]
+
+            # normalización de energía del canal T-spaced
+            h_diezmado = h_diezmado / np.sqrt(np.sum(np.abs(h_diezmado)**2) + 1e-15)
+
+            self.H_TAPS = h_diezmado.astype(np.complex128)
+        else:
+            self.H_TAPS = np.asarray(H_TAPS, np.complex128)
+        # --- FIN DE LA MODIFICACION ---
+
         self.NORM_H_POWER = bool(NORM_H_POWER)
         self.SNR_REF      = str(SNR_REF)
 
@@ -216,11 +266,8 @@ def ber_at_snr(snr_db, *, N_SYM=30000, skip=2000, runs=1, eq_params=None, reuse_
             N_PLOT            =  0,
             N_SKIP            =  0,
             CHAN_MODE         =  eq_params.get("CHAN_MODE", "fir"),
-            H_TAPS            =  eq_params.get("H_TAPS",[
-                                 0.72+0.00j, 0.20+0.05j, -0.15+0.04j, 0.12-0.03j,
-                                -0.10+0.02j, 0.08-0.02j, 0.06+0.01j, -0.05-0.015j,
-                                 0.04+0.01j, -0.03-0.008j, 0.02+0.005j, 0.015+0.003j
-                                                        ]),
+            # H_TAPS se tomará del diccionario de eq_params
+            H_TAPS            =  eq_params.get("H_TAPS", None), 
             SNR_DB            =  snr_db,              # Es/N0(dB)
             SEED_NOISE        =  eq_params.get("SEED_NOISE", 5678 + r),
             L_EQ              =  eq_params.get("L_EQ", 31),
@@ -305,29 +352,56 @@ def plot_ber_curve(results, title="BER vs SNR"):
     plt.title(title)
     plt.legend()
     plt.tight_layout()
+    
+    
+def measure_ber_vs_mu(SNR_dB=8.0, mus=None, repeats=3,
+                      NSYM=10000, skip=2000, min_overlap=256,
+                      eq_mu_params=None): # <-- Añadir eq_mu_params
+    if mus is None:
+        mus = np.logspace(-4, -1, 16)
+        
+    if eq_mu_params is None: # <-- Añadir default
+        eq_mu_params = {}
 
+    ber_means, ber_stds = [], []
+
+    for mu in mus:
+        vals = []
+        for r in range(repeats):
+            # Usar **eq_mu_params para pasar H_TAPS=None, etc.
+            sim = equalizerSimulator(
+                N_SYM=NSYM, 
+                N_PLOT=0, N_SKIP=0, # Añadido para que coincida con __init__
+                SNR_dB=SNR_dB,
+                SEED_NOISE=5678 + r, # Añadido
+                MU=mu,
+                **eq_mu_params
+            )
+            sim.run() # .run() ya hace gen_source, pass_channel, equalize
+
+            res = sim.ber(skip=skip, win=4*sim.PART_N, mN=8,
+                          min_overlap=min_overlap)
+
+            if isinstance(res, dict):
+                vals.append(res["BER"])
+            else:
+                vals.append(res[0]) # Soportar salida de tupla antigua si es necesario
+
+        ber_means.append(np.mean(vals))
+        ber_stds.append(np.std(vals, ddof=1) if repeats > 1 else 0.0)
+
+    return np.array(mus), np.array(ber_means), np.array(ber_stds)
 
 # main 
 if __name__ == "__main__":
+    
+    # --- MAIN SIM MODIFICADO ---
     sim = equalizerSimulator(
-        N_SYM            =  10000,
+        N_SYM            =  10000, # Aumentado para ver mejor la convergencia
         N_PLOT           =  10000,
         N_SKIP           =  0,
         CHAN_MODE        =  "fir",
-        #H_TAPS          =  [0,0,0,0,0,0,1,0,0,0,0,0,0],  # impulso
-        H_TAPS = [ 0.9091025 +0.0000000j, 
-                   0.2525285 +0.0631321j, 
-                  -0.1893963 +0.0505057j, 
-                   0.1515171 -0.0378793j, 
-                  -0.1262642 +0.0252529j, 
-                   0.1010114 -0.0252529j, 
-                   0.0757585 +0.0126264j, 
-                  -0.0631321 -0.0189396j, 
-                   0.0505057 +0.0126264j, 
-                  -0.0378793 -0.0101011j, 
-                   0.0252529 +0.0063132j, 
-                   0.0189396 +0.0037879j ],
-        
+        H_TAPS           =  None,  # <-- ¡MODIFICADO!
         SNR_DB           =  20,    
         SEED_NOISE       =  5678,
         L_EQ             =  31,
@@ -343,7 +417,6 @@ if __name__ == "__main__":
         STABLE_PATIENCE  =  80,
         seedI            =  0x17F,
         seedQ            =  0x11D,
-        # canal unitario o referenciar SNR al TX
         NORM_H_POWER     =  False,
         SNR_REF          =  "post"
     ).run()
@@ -352,22 +425,23 @@ if __name__ == "__main__":
     sim.plot(
         weights      =  True,
         profile      =  False,
-        chan_profile =  False,
-        freq         =  False,
-        conv         =  False,
+        chan_profile =  True, 
+        freq         =  True, 
+        conv         =  True, 
         time_in      =  False,
-        const_in     =  False,
+        const_in     =  True, 
         time_out     =  False,
-        const_out    =  False,
-        const_dec    =  False
+        const_out    =  True, 
+        const_dec    =  True   
     )
 
     print("CENTER_TAP =", sim.CENTER_TAP, "k0 =", sim.k0)
-    res = sim.ber(skip=2000, win=4*sim.PART_N, mN=8)
+    # Aumentar el skip para darle tiempo a converger al nuevo canal
+    res = sim.ber(skip=5000, win=4*sim.PART_N, mN=8) 
     print("BER:", res)
 
     # sweep 
-    RUN_BER_SWEEP = True
+    RUN_BER_SWEEP = False # Puedes ponerlo en True para probarlo
     if RUN_BER_SWEEP:
         SNRS = list(range(0, 13, 1))  # inicio, fin, paso
         EQ_PARAMS = dict(
@@ -376,30 +450,16 @@ if __name__ == "__main__":
             PART_N           =  16,
             CENTER_TAP       =  None,
             MU               =  0.005,
-            MU_SWITCH_ENABLE =  True,
+            MU_SWITCH_ENABLE =  True, # Activado (era False)
             MU_FINAL         =  0.0002,
             N_SWITCH         =  1000,
             USE_STABLE       =  False,
             STABLE_WIN       =  300,
             STABLE_TOL       =  1.0,
             STABLE_PATIENCE  =  80,
-            #H_TAPS           =  [0,0,0,0,0,0,1,0,0,0,0,0,0],  # impulso
-            H_TAPS = [ 0.9091025 +0.0000000j, 
-                       0.2525285 +0.0631321j, 
-                      -0.1893963 +0.0505057j, 
-                       0.1515171 -0.0378793j, 
-                      -0.1262642 +0.0252529j, 
-                       0.1010114 -0.0252529j, 
-                       0.0757585 +0.0126264j, 
-                      -0.0631321 -0.0189396j, 
-                       0.0505057 +0.0126264j, 
-                      -0.0378793 -0.0101011j, 
-                       0.0252529 +0.0063132j, 
-                       0.0189396 +0.0037879j ],
-
-            # canal:
+            H_TAPS           =  None, # <-- ¡MODIFICADO!
             NORM_H_POWER     =  False,
-            SNR_REF          =  "post",  # para calcular sigma
+            SNR_REF          =  "post",
         )
         SWEEP_N_SYM     = 10000
         SWEEP_SKIP      = 5000
@@ -417,7 +477,58 @@ if __name__ == "__main__":
         for r in results:
             print(f"SNR(Es/N0)={r['SNR']:>2} dB | BER={r['BER']:.3e} | Nbits={r['Nbits']}")
         plot_ber_curve(results, title="QPSK: BER teorica vs simulada")
-        plt.show()
+        
+    # === BER vs μ a SNR fija =====================================================
+    RUN_BER_VS_MU = False # Puedes ponerlo en True para probarlo
+    if RUN_BER_VS_MU:
+        import numpy as np
+        # Asegúrate de tener esta función en plots.py
+        from plots import plot_ber_vs_mu  
+
+        # Parámetros del barrido
+        SNR_FIXED   = 20.0        # SNR (Es/N0) fija para el gráfico
+        MUS         = np.logspace(-4, -1, 20)  # rango de μ a probar
+        REPEATS     = 3           # promedios por μ
+        NSYM        = 20000       
+        SKIP        = 5000        
+
+        # Config. del ecualizador/canal (μ lo sobreescribimos en el loop)
+        EQ_MU_PARAMS = dict(
+            CHAN_MODE        = "fir",
+            L_EQ             = 31,
+            PART_N           = 16,
+            CENTER_TAP       = None,
+            MU_SWITCH_ENABLE = False,   # μ fijo (sin conmutación)
+            MU_FINAL         = 0.0005,  
+            N_SWITCH         = 500,
+            USE_STABLE       = False,
+            STABLE_WIN       = 300,
+            STABLE_TOL       = 1.0,
+            STABLE_PATIENCE  = 80,
+            H_TAPS           = None, # <-- ¡MODIFICADO!
+            NORM_H_POWER     = False,
+            SNR_REF          = "post",
+            seedI            = 0x17F,
+            seedQ            = 0x11D,
+        )
+
+        # --- Lógica de barrido de mu ---
+        # (Usando la función 'measure_ber_vs_mu' re-escrita)
+        
+        # Corregir la llamada a measure_ber_vs_mu
+        mus_out, ber_vals, ber_stds_out = measure_ber_vs_mu(
+            SNR_dB=SNR_FIXED,
+            mus=MUS,
+            repeats=REPEATS,
+            NSYM=NSYM,
+            skip=SKIP,
+            min_overlap=4*EQ_MU_PARAMS['PART_N'],
+            eq_mu_params=EQ_MU_PARAMS # Pasar los parámetros
+        )
+
+        plot_ber_vs_mu(mus_out, ber_vals, title=f'QPSK – BER vs μ (SNR={SNR_FIXED:.1f} dB)')
+
+    plt.show()
 
 
 """
