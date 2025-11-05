@@ -1,23 +1,57 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 # Plots
 
-def plot_weights_labeled(W_hist, center_index):
+def plot_weights_labeled(W_hist, center_index, smoothing_window=None):
+    """
+    Grafica la evolución de los coeficientes del FFE.
+    
+    smoothing_window (int, opcional): 
+        Si se provee, aplica una media móvil de esta ventana
+        para mostrar la tendencia en lugar del ruido bloque-a-bloque.
+    """
     fig, ax = plt.subplots(figsize=(10, 4))
     L = W_hist.shape[1]
+
+    # Aplicar media móvil si se especificó
+    if smoothing_window is not None and smoothing_window > 1:
+        win = int(smoothing_window)
+        # Preparamos arrays vacíos para los datos suavizados
+        W_hist_real_smooth = np.empty_like(W_hist.real)
+        W_hist_imag_smooth = np.empty_like(W_hist.imag)
+        
+        # Aplicamos la media móvil a cada tap (columna)
+        for i in range(L):
+            W_hist_real_smooth[:, i] = pd.Series(W_hist[:, i].real).rolling(
+                window=win, min_periods=1, center=True).mean()
+            W_hist_imag_smooth[:, i] = pd.Series(W_hist[:, i].imag).rolling(
+                window=win, min_periods=1, center=True).mean()
+        
+        # Sobrescribimos los datos a graficar con la versión suavizada
+        plot_data_real = W_hist_real_smooth
+        plot_data_imag = W_hist_imag_smooth
+        ax.set_title(f"Evolución de coeficientes FFE (Tendencia con ventana de {win} bloques)")
+    else:
+        # Comportamiento original: graficar punto por punto
+        plot_data_real = W_hist.real
+        plot_data_imag = W_hist.imag
+        ax.set_title("Evolución de coeficientes del FFE")
+
+    # Graficar los datos (originales o suavizados)
     for i in range(L):
         ls = "-" if i == center_index else "--"
-        ax.plot(W_hist[:, i].real, linestyle=ls, linewidth=1,
+        ax.plot(plot_data_real[:, i], linestyle=ls, linewidth=1,
                 label=f"Re w[{i}]" + (" (c)" if i == center_index else ""))
-        ax.plot(W_hist[:, i].imag, linestyle=":", linewidth=1,
+        ax.plot(plot_data_imag[:, i], linestyle=":", linewidth=1,
                 label=f"Im w[{i}]")
-    ax.set_title("Evolución de coeficientes del FFE")
+    
     ax.set_xlabel("bloque"); ax.set_ylabel("valor del tap")
     ax.grid(True)
     ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5),
               borderaxespad=0., fontsize=8, ncol=1)
-    # deja espacio a la derecha para la leyenda
+    
     plt.subplots_adjust(right=0.78)
     fig.tight_layout()
     plt.show()

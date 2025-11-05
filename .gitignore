@@ -1,4 +1,17 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Mac (por si acaso)
+.DS_Store
+
+# VS Code (recomendado)
+.vscode/
+
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .vscode/
+ main
