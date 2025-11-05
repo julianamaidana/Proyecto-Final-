@@ -31,12 +31,43 @@ def ber_qpsk_theory_esn0(EsN0_dB):
     return _Q(np.sqrt(2.0 * EbN0_lin))  # BER QPSK coherente + Gray
 
 def suggest_center_tap(h, L_eq, pre_ratio=0.15):
+<<<<<<< HEAD
     k_peak = int(np.argmax(np.abs(h)))
     off = max(1, int(pre_ratio * L_eq))
     return min(k_peak + off, L_eq - 1)
 
 
 # ============================ Pulso RC (original) ============================
+=======
+        k_peak = int(np.argmax(np.abs(h)))
+        off = max(1, int(pre_ratio * L_eq))
+        return min(k_peak + off, L_eq - 1)
+        
+def taps_rc_narrow(beta=0.15, span_sym=13, frac=0.12, sps=64, cascade=2):
+    """Canal T-spaced derivado de RC muy angosto + opcionalmente en cascada."""
+    # RC sobremuestreado
+    T = 1.0
+    Nhalf = span_sym//2 + 1
+    t = np.arange(-Nhalf*T, Nhalf*T, T/sps)
+    t[t == 0] = 1e-8
+    denom0 = 1.0 - (2.0*beta*t/T)**2
+    denom0[np.abs(denom0) < 1e-8] += 1e-8
+    h_os = np.sinc(t/T) * (np.cos(np.pi*beta*t/T) / denom0)
+
+    # centrar y aplicar retardo fraccional
+    c = len(h_os)//2 + int(round(frac*sps))
+    idx = c + np.arange(-span_sym//2, span_sym//2+1)*sps
+    h = h_os[idx.astype(int)].astype(complex)
+
+    # cascada para “cerrar” más la banda
+    for _ in range(cascade-1):
+        h = np.convolve(h, h)
+
+    # normalizar energía
+    h = h / np.sqrt((np.abs(h)**2).sum() + 1e-15)
+    return h
+
+>>>>>>> main
 
 def rcosine(beta, sps, num_symbols_half):
     """
@@ -119,10 +150,33 @@ class equalizerSimulator:
 
         # Si no pasan H_TAPS, construyo un canal "agresivo"
         if H_TAPS is None:
+<<<<<<< HEAD
             self.H_TAPS = rc_aggressive_channel(
                 beta=0.20, span_sym=13, sps=64, frac=0.18,
                 echo_a=0.35, echo_d=1, echo_phi=np.pi*0.6, normalize=True
             )
+=======
+            # Parámetros del canal RC "angosto"
+            sps       = 64        # sobremuestreo para construir el RC
+            beta      = 0.15      # achicar banda => más ISI
+            span_sym  = 13        # longitud impar del canal T-spaced
+            frac      = 0.12      # retardo fraccional opcional (0..1)
+
+            print(f"Generando canal RC: sps={sps}, beta={beta}, span={span_sym}, frac={frac}")
+
+            h_os = rcosine(beta=beta, sps=sps, num_symbols_half=span_sym//2 + 1)
+
+            # centro + fracción
+            c    = len(h_os)//2 + int(round(frac * sps))
+            half = span_sym//2
+            idx  = c + np.arange(-half, half+1) * sps
+            h_diezmado = h_os[idx.astype(int)]
+
+            # normalización de energía del canal T-spaced
+            h_diezmado = h_diezmado / np.sqrt(np.sum(np.abs(h_diezmado)**2) + 1e-15)
+
+            self.H_TAPS = h_diezmado.astype(np.complex128)
+>>>>>>> main
         else:
             self.H_TAPS = np.asarray(H_TAPS, np.complex128)
 
@@ -130,11 +184,19 @@ class equalizerSimulator:
         self.SNR_REF      = str(SNR_REF)
 
         # eq
+<<<<<<< HEAD
         self.L_EQ         = int(L_EQ)
         self.PART_N       = int(PART_N)
         self.CENTER_TAP   = (suggest_center_tap(self.H_TAPS, self.L_EQ)
                              if CENTER_TAP is None else int(CENTER_TAP))
 
+=======
+        self.L_EQ         = L_EQ
+        self.PART_N       = PART_N
+        #self.CENTER_TAP = (suggest_center_tap(self.H_TAPS, L_EQ) 
+        #                   if CENTER_TAP is None else CENTER_TAP)
+        self.CENTER_TAP = CENTER_TAP if CENTER_TAP is not None else L_EQ // 2
+>>>>>>> main
         # mu / switch
         self.MU               = float(MU)
         self.MU_SWITCH_ENABLE = bool(MU_SWITCH_ENABLE)
@@ -417,15 +479,26 @@ if __name__ == "__main__":
         N_PLOT           =  10000,
         N_SKIP           =  0,
         CHAN_MODE        =  "fir",
+<<<<<<< HEAD
         H_TAPS           =  None,   # usa el canal agresivo por defecto
         SNR_DB           =  15,
+=======
+        H_TAPS           =  taps_rc_narrow(beta=0.15, span_sym=13, frac=0.12, cascade=2),  # <-- ¡MODIFICADO!
+        SNR_DB           =  20,    
+>>>>>>> main
         SEED_NOISE       =  5678,
         L_EQ             =  31,
         PART_N           =  16,
         CENTER_TAP       =  None,
+<<<<<<< HEAD
         MU               =  0.009, #si lo subis se rompe 
         MU_SWITCH_ENABLE =  True, 
         MU_FINAL         =  0.0003,
+=======
+        MU               =  0.004,
+        MU_SWITCH_ENABLE =  False,
+        MU_FINAL         =  0.0004,
+>>>>>>> main
         N_SWITCH         =  500,
         USE_STABLE       =  False,
         STABLE_WIN       =  300,

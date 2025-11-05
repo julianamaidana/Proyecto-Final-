@@ -9,3 +9,9 @@ __pycache__/
 
 # VS Code (recomendado)
 .vscode/
+
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.vscode/
+ main
