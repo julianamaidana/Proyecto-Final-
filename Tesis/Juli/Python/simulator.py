@@ -33,35 +33,27 @@ def suggest_center_tap(h, L_eq, pre_ratio=0.15):
         return min(k_peak + off, L_eq - 1)
 
 # --- NUEVA FUNCION AGREGADA ---
-def rcosine(beta, sps, num_symbols_half):
-    """ 
-    Respuesta al impulso del pulso de caida cosenoidal (RC).
-    Basado en tx_rcosine_procom.py
-    
-    beta (float): Factor de Roll-off (0 a 1).
-    sps (int): Samples per symbol (oversampling).
-    num_symbols_half (int): Cantidad de símbolos de "cola" a cada lado.
+def rcosine(beta=0.20, span_sym=13, sps=64, frac=0.18,
+                          echo_a=0.35, echo_d=1, echo_phi=np.pi*0.6,
+                          normalize=True):
     """
-    Tbaud = 1.0
-    Nbauds = num_symbols_half * 2 # Total de símbolos de longitud
-    
-    t_vect = np.arange(-0.5 * Nbauds * Tbaud, 0.5 * Nbauds * Tbaud, 
-                       float(Tbaud) / sps)
+    RC sobremuestreado -> taps T-spaced con ISI fuerte y parte imaginaria.
+    - beta chico  => más angosto
+    - frac != 0   => muestreo fuera de ceros (genera ISI)
+    - eco complejo a∠phi desplazado d símbolos
+    """
+    assert span_sym % 2 == 1
+    h_os = rcosine(beta=beta, sps=sps, num_symbols_half=span_sym//2 + 1)
+    c    = len(h_os)//2 + int(round(frac * sps))          # centro + fracción
+    half = span_sym//2
+    idx  = c + np.arange(-half, half+1) * sps             # 1 de cada 'sps'
+    h0   = h_os[idx.astype(int)]                          # RC T-spaced (con frac)
+    he   = echo_a * np.exp(1j*echo_phi) * np.roll(h0, +echo_d)  # eco complejo
+    h    = h0 + he
+    if normalize:
+        h = h / np.sqrt(np.sum(np.abs(h)**2) + 1e-15)
+    return h.astype(np.complex128)
 
-    # Arreglar el punto exacto t=0 para evitar división por cero si beta=0
-    t_vect[t_vect == 0] = 1e-8 
-    
-    # Casos donde el denominador es cero (t = +/- Tbaud / (2*beta))
-    denom_zero_mask = (np.abs(1.0 - (2.0 * beta * t_vect / Tbaud)**2) < 1e-8)
-    t_vect[denom_zero_mask] = t_vect[denom_zero_mask] + 1e-8
-
-    # Fórmula del Raised Cosine
-    y_vect = np.sinc(t_vect / Tbaud) * (np.cos(np.pi * beta * t_vect / Tbaud) / 
-                                        (1.0 - (2.0 * beta * t_vect / Tbaud)**2))
-    
-    # Devolver como complejo y normalizar potencia
-    h_complex = np.array(y_vect, dtype=np.complex128)
-    return h_complex / np.sqrt(np.sum(np.abs(h_complex)**2))
 
 
 # clase del simulador 
@@ -86,28 +78,19 @@ class equalizerSimulator:
         
         # --- LOGICA DE CANAL MODIFICADA ---
         if H_TAPS is None:
-            # Parámetros del canal RC "angosto"
-            sps       = 64        # sobremuestreo para construir el RC
-            beta      = 0.30      # achicar banda => más ISI
-            span_sym  = 9         # longitud impar del canal T-spaced
-            frac      = 0.10      # retardo fraccional opcional (0..1)
-
-            print(f"Generando canal RC: sps={sps}, beta={beta}, span={span_sym}, frac={frac}")
-
-            h_os = rcosine(beta=beta, sps=sps, num_symbols_half=span_sym//2 + 1)
-
-            # centro + fracción
-            c    = len(h_os)//2 + int(round(frac * sps))
-            half = span_sym//2
-            idx  = c + np.arange(-half, half+1) * sps
-            h_diezmado = h_os[idx.astype(int)]
-
-            # normalización de energía del canal T-spaced
-            h_diezmado = h_diezmado / np.sqrt(np.sum(np.abs(h_diezmado)**2) + 1e-15)
-
-            self.H_TAPS = h_diezmado.astype(np.complex128)
+            self.H_TAPS = rcosine(
+                beta=0.20,    # más chico = más ISI
+                span_sym=13,  # más largo = más cola
+                sps=64,       # construcción suave del RC
+                frac=0.18,    # ≠0 para romper ceros de Nyquist
+                echo_a=0.35,  # eco con ganancia
+                echo_d=1,     # eco a 1 símbolo
+                echo_phi=np.pi*0.6,  # fase del eco (parte imag ≠ 0)
+                normalize=True
+            )
         else:
             self.H_TAPS = np.asarray(H_TAPS, np.complex128)
+
         # --- FIN DE LA MODIFICACION ---
 
         self.NORM_H_POWER = bool(NORM_H_POWER)
@@ -197,7 +180,8 @@ class equalizerSimulator:
          weights=True, profile=True, conv=True,
          time_in=True, time_out=True,
          const_in=True, const_out=True, const_dec=True,
-         chan_profile=True, freq=True):
+         chan_profile=True, freq=True,
+         weights_smoothing_window=None): # <--- 1. AÑADIR ESTE PARÁMETRO
         # graficos
         W_hist = self.W_histI + 1j*self.W_histQ
         w_fin  = self.w_finI  + 1j*self.w_finQ
@@ -208,10 +192,16 @@ class equalizerSimulator:
         ylims = sym_ylim(np.real(w_fin), np.imag(w_fin), np.real(self.H_TAPS), np.imag(self.H_TAPS))
     
         if weights:
-            plot_weights_labeled(W_hist, center_index=self.CENTER_TAP)
+            # --- 2. MODIFICAR ESTA LLAMADA ---
+            plot_weights_labeled(
+                W_hist, 
+                center_index=self.CENTER_TAP,
+                smoothing_window=weights_smoothing_window # <-- Pasarle el parámetro
+            )
         if profile:
             plot_filter_profile(w_fin, center_index=self.CENTER_TAP,
                                 ylims_re=ylims, ylims_im=ylims)
+        # ... (el resto de la función sigue idéntico) ...
         if chan_profile:
             plot_channel_profile(self.H_TAPS, center_index=None, ylims=ylims)
         if conv:
@@ -232,7 +222,7 @@ class equalizerSimulator:
             plot_constellation(tail_hat, title="Constelacion y_hat")
         if freq:
             plot_freq_responses_db( w_fin,np.asarray(self.H_TAPS, np.complex128), pad_n=8192)
-    
+            
     def run(self):
         # pipeline
         s = self.gen_source()
@@ -401,15 +391,15 @@ if __name__ == "__main__":
         N_PLOT           =  10000,
         N_SKIP           =  0,
         CHAN_MODE        =  "fir",
-        H_TAPS           =  None,  # <-- ¡MODIFICADO!
-        SNR_DB           =  20,    
+        H_TAPS           =  None, 
+        SNR_DB           =  30,    
         SEED_NOISE       =  5678,
         L_EQ             =  31,
         PART_N           =  16,
         CENTER_TAP       =  None,
         MU               =  0.006,
         MU_SWITCH_ENABLE =  True,
-        MU_FINAL         =  0.0005,
+        MU_FINAL         =  0.0004,
         N_SWITCH         =  500,
         USE_STABLE       =  False,
         STABLE_WIN       =  300,
@@ -424,15 +414,16 @@ if __name__ == "__main__":
     # graficos 
     sim.plot(
         weights      =  True,
+        weights_smoothing_window = 1000, # <-- (Ventana de 1000 bloques)
         profile      =  False,
-        chan_profile =  True, # <-- ¡MODIFICADO! Para ver el nuevo canal
-        freq         =  True, # <-- ¡MODIFICADO! Para ver la resp. en frec.
-        conv         =  True, # <-- ¡MODIFICADO! Para ver la convolución
+        chan_profile =  True, # 
+        freq         =  True, # 
+        conv         =  True, # 
         time_in      =  False,
-        const_in     =  True, # <-- ¡MODIFICADO! Para ver constelación de entrada
+        const_in     =  True, # 
         time_out     =  False,
-        const_out    =  True, # <-- ¡MODIFICADO! Para ver constelación de salida
-        const_dec    =  True  # <-- ¡MODIFICADO! Para ver constelación decidida
+        const_out    =  True, # 
+        const_dec    =  True  # 
     )
 
     print("CENTER_TAP =", sim.CENTER_TAP, "k0 =", sim.k0)
@@ -450,14 +441,14 @@ if __name__ == "__main__":
             PART_N           =  16,
             CENTER_TAP       =  None,
             MU               =  0.005,
-            MU_SWITCH_ENABLE =  True, # Activado (era False)
+            MU_SWITCH_ENABLE =  True, 
             MU_FINAL         =  0.0002,
             N_SWITCH         =  1000,
             USE_STABLE       =  False,
             STABLE_WIN       =  300,
             STABLE_TOL       =  1.0,
             STABLE_PATIENCE  =  80,
-            H_TAPS           =  None, # <-- ¡MODIFICADO!
+            H_TAPS           =  None, 
             NORM_H_POWER     =  False,
             SNR_REF          =  "post",
         )
@@ -486,7 +477,7 @@ if __name__ == "__main__":
         from plots import plot_ber_vs_mu  
 
         # Parámetros del barrido
-        SNR_FIXED   = 20.0        # SNR (Es/N0) fija para el gráfico
+        SNR_FIXED   = 30.0        # SNR (Es/N0) fija para el gráfico
         MUS         = np.logspace(-4, -1, 20)  # rango de μ a probar
         REPEATS     = 3           # promedios por μ
         NSYM        = 20000       
