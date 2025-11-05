@@ -310,8 +310,8 @@ def plot_ber_curve(results, title="BER vs SNR"):
 # main 
 if __name__ == "__main__":
     sim = equalizerSimulator(
-        N_SYM            =  10000,
-        N_PLOT           =  10000,
+        N_SYM            =  1000000,
+        N_PLOT           =  1000000,
         N_SKIP           =  0,
         CHAN_MODE        =  "fir",
         #H_TAPS          =  [0,0,0,0,0,0,1,0,0,0,0,0,0],  # impulso
@@ -351,15 +351,15 @@ if __name__ == "__main__":
     # graficos 
     sim.plot(
         weights      =  True,
-        profile      =  False,
-        chan_profile =  False,
-        freq         =  False,
-        conv         =  False,
-        time_in      =  False,
-        const_in     =  False,
-        time_out     =  False,
-        const_out    =  False,
-        const_dec    =  False
+        profile      =  True,
+        chan_profile =  True,
+        freq         =  True,
+        conv         =  True,
+        time_in      =  True,
+        const_in     =  True,
+        time_out     =  True,
+        const_out    =  True,
+        const_dec    =  True
     )
 
     print("CENTER_TAP =", sim.CENTER_TAP, "k0 =", sim.k0)
@@ -401,8 +401,8 @@ if __name__ == "__main__":
             NORM_H_POWER     =  False,
             SNR_REF          =  "post",  # para calcular sigma
         )
-        SWEEP_N_SYM     = 10000
-        SWEEP_SKIP      = 5000
+        SWEEP_N_SYM     = 1000000
+        SWEEP_SKIP      = 10000
         SWEEP_RUNS      = 1
         SWEEP_REUSE_SRC = True
 
