@@ -56,6 +56,10 @@ def taps_rc_narrow(beta=0.15, span_sym=13, frac=0.12, sps=64, cascade=2):
     h = h / np.sqrt((np.abs(h)**2).sum() + 1e-15)
     return h
 
+def rc_agresivo_gain(beta=0.12, span_sym=13, frac=0.15, sps=64, cascade=2, gain_db=+6.0):
+    h = taps_rc_narrow(beta=beta, span_sym=span_sym, frac=frac, sps=sps, cascade=cascade)  # real
+    g = 10**(gain_db/20.0)
+    return (g * h).astype(np.complex128)   # ¡no re-normalizar!
 
 # --- NUEVA FUNCION AGREGADA ---
 def rcosine(beta, sps, num_symbols_half):
@@ -141,9 +145,9 @@ class equalizerSimulator:
         # eq
         self.L_EQ         = L_EQ
         self.PART_N       = PART_N
-        #self.CENTER_TAP = (suggest_center_tap(self.H_TAPS, L_EQ) 
-        #                   if CENTER_TAP is None else CENTER_TAP)
-        self.CENTER_TAP = CENTER_TAP if CENTER_TAP is not None else L_EQ // 2
+        self.CENTER_TAP = (suggest_center_tap(self.H_TAPS, L_EQ) 
+                           if CENTER_TAP is None else CENTER_TAP)
+        #self.CENTER_TAP = CENTER_TAP if CENTER_TAP is not None else L_EQ // 2
         # mu / switch
         self.MU               = MU
         self.MU_SWITCH_ENABLE = MU_SWITCH_ENABLE
@@ -423,11 +427,12 @@ if __name__ == "__main__":
     
     # --- MAIN SIM MODIFICADO ---
     sim = equalizerSimulator(
-        N_SYM            =  10000, # Aumentado para ver mejor la convergencia
-        N_PLOT           =  10000,
+        N_SYM            =  1000, # Aumentado para ver mejor la convergencia
+        N_PLOT           =  1000,
         N_SKIP           =  0,
         CHAN_MODE        =  "fir",
-        H_TAPS           =  taps_rc_narrow(beta=0.15, span_sym=13, frac=0.12, cascade=2),  # <-- ¡MODIFICADO!
+        #H_TAPS           =  taps_rc_narrow(beta=0.15, span_sym=13, frac=0.12, cascade=2),  # <-- ¡MODIFICADO!
+        H_TAPS = rc_agresivo_gain(beta=0.12, span_sym=13, frac=0.15, sps=64, cascade=2, gain_db=+6.0),
         SNR_DB           =  20,    
         SEED_NOISE       =  5678,
         L_EQ             =  31,
@@ -435,7 +440,7 @@ if __name__ == "__main__":
         CENTER_TAP       =  None,
         MU               =  0.004,
         MU_SWITCH_ENABLE =  False,
-        MU_FINAL         =  0.0004,
+        MU_FINAL         =  0.0005,
         N_SWITCH         =  500,
         USE_STABLE       =  False,
         STABLE_WIN       =  300,
