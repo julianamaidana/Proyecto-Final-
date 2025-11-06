@@ -48,13 +48,7 @@ def ffe_lms_freq_iq(xI, xQ, L_eq, part_N, mu, center_index=None, mu_step=None):
     X_histQ = np.zeros((K, Nfft), dtype=np.float64)
 
     # buffers / trazas
-    #num_blocks = (len(xI) - N) // N + 1 if len(xI) >= N else 0
-    num_blocks = (len(xI) + N - 1) // N  # ceiling division
-    pad_len = num_blocks * N - len(xI)
-    if pad_len > 0:
-        xI = np.concatenate([xI, np.zeros(pad_len)])
-        xQ = np.concatenate([xQ, np.zeros(pad_len)])
-    
+    num_blocks = (len(xI) - N) // N + 1 if len(xI) >= N else 0
     if num_blocks <= 0: raise ValueError("señal muy corta para el N elegido.")
 
     yI = np.zeros(num_blocks * N, dtype=np.float64)

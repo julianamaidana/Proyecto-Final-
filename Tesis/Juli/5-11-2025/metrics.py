@@ -26,7 +26,7 @@ def _xforms_bits(Ib, Qb):
     return out
 
 def ber(bI_src, bQ_src, dI_sym, dQ_sym,
-        *, lag, N=None, win=8, mN=0, skip=0, min_overlap=256, stop_err=None, max_bits=None):
+        *, lag, N=None, win=8, mN=0, skip=0, min_overlap=256):
     # bits fuente y decididos
     bI_src = np.asarray(bI_src, dtype=np.uint8)
     bQ_src = np.asarray(bQ_src, dtype=np.uint8)
@@ -68,35 +68,6 @@ def ber(bI_src, bQ_src, dI_sym, dQ_sym,
                         "lag_used": int(Lg), "xform_used": name}
 
     # salida
-    #if (best is None) or (best["Lc"] <= 0):
-    #    return {"BER": np.nan, "BER_I": np.nan, "BER_Q": np.nan, "Nbits": 0,
-    #            "lag_used": None, "xform_used": None}
-
-            if max_bits is not None and max_bits > 0:
-                # recordá que BER total cuenta I y Q -> 2 bits por símbolo
-                max_sym = max_bits // 2
-                Lc = min(Lc, int(max_sym))
-                sI = sI[:Lc]; sQ = sQ[:Lc]; hI = hI[:Lc]; hQ = hQ[:Lc]
-
-            # --- NUEVO: parar por errores usando acumuladas ---
-            if stop_err is not None and stop_err > 0:
-                eI = sI ^ hI
-                eQ = sQ ^ hQ
-                eTot = eI.astype(np.uint16) + eQ.astype(np.uint16)  # 0,1,2 por símbolo
-                csum = np.cumsum(eTot, dtype=np.uint32)
-                hit = np.searchsorted(csum, stop_err, side="left")
-                if hit < Lc:
-                    cut = hit + 1
-                    sI = sI[:cut]; sQ = sQ[:cut]; hI = hI[:cut]; hQ = hQ[:cut]
-                    Lc = cut
-
-            errI = int(np.count_nonzero(sI ^ hI))
-            errQ = int(np.count_nonzero(sQ ^ hQ))
-            tot = errI + errQ
-            if (best is None) or (tot < best["tot"]):
-                best = {"tot": tot, "errI": errI, "errQ": errQ, "Lc": Lc,
-                        "lag_used": int(Lg), "xform_used": name}
-
     if (best is None) or (best["Lc"] <= 0):
         return {"BER": np.nan, "BER_I": np.nan, "BER_Q": np.nan, "Nbits": 0,
                 "lag_used": None, "xform_used": None}
