@@ -1,18 +1,20 @@
+# simulator.py
+# Simulador con FFE por bloques y barridos de BER
+
 import numpy as np
 import matplotlib.pyplot as plt
+from math import erfc as _erfc_scalar
 
 from fixedpoint import q, FX_NARROW
 from prbs_qpsk import prbs_qpsk_iq
 from channel import channel
 from mu_switch import make_mu_switch
-from pbfdaf_lms import ffe_lms_freq_iq
+from pbfdaf_lms import FFE_Engine
 from metrics import ber as _ber
 from plots import (
     plot_weights_labeled, plot_filter_profile, plot_channel_profile, plot_combined_response,
     plot_time_iq_complex, plot_constellation, plot_freq_responses_db, sym_ylim
 )
-from math import erfc as _erfc_scalar
-
 
 # ============================ Utilidades teóricas ============================
 
@@ -21,102 +23,54 @@ def _erfc_vec(x):
     return np.vectorize(_erfc_scalar)(x)
 
 def _Q(x):
-    # Q(x) = 0.5 * erfc(x / sqrt(2))
+    # Q(x) = 0.5·erfc(x / sqrt(2))
     return 0.5 * _erfc_vec(x / np.sqrt(2.0))
 
-def ber_qpsk_theory_esn0(EsN0_dB):
-    # convertir Es/N0(dB) a Eb/N0(dB) (QPSK: 2 bits/símbolo)
-    EbN0_dB  = np.asarray(EsN0_dB) - 10*np.log10(2.0)  # -3.0103 dB
+def _ber_qpsk_awgn_from_EsN0_dB(esn0_dB):
+    """BER teórico QPSK en AWGN a partir de Es/N0 [dB] (mapeo Gray)."""
+    EbN0_dB  = np.asarray(esn0_dB) - 10*np.log10(2.0)  # QPSK: Es=2·Eb
     EbN0_lin = 10**(EbN0_dB/10.0)
-    return _Q(np.sqrt(2.0 * EbN0_lin))  # BER QPSK coherente + Gray
+    return float(_Q(np.sqrt(2.0 * EbN0_lin)))
+
+
+# ============================ Utilidades de canal ============================
 
 def suggest_center_tap(h, L_eq, pre_ratio=0.15):
-<<<<<<< HEAD
     k_peak = int(np.argmax(np.abs(h)))
     off = max(1, int(pre_ratio * L_eq))
     return min(k_peak + off, L_eq - 1)
 
-
-# ============================ Pulso RC (original) ============================
-=======
-        k_peak = int(np.argmax(np.abs(h)))
-        off = max(1, int(pre_ratio * L_eq))
-        return min(k_peak + off, L_eq - 1)
-        
-def taps_rc_narrow(beta=0.15, span_sym=13, frac=0.12, sps=64, cascade=2):
-    """Canal T-spaced derivado de RC muy angosto + opcionalmente en cascada."""
-    # RC sobremuestreado
-    T = 1.0
-    Nhalf = span_sym//2 + 1
-    t = np.arange(-Nhalf*T, Nhalf*T, T/sps)
-    t[t == 0] = 1e-8
-    denom0 = 1.0 - (2.0*beta*t/T)**2
-    denom0[np.abs(denom0) < 1e-8] += 1e-8
-    h_os = np.sinc(t/T) * (np.cos(np.pi*beta*t/T) / denom0)
-
-    # centrar y aplicar retardo fraccional
-    c = len(h_os)//2 + int(round(frac*sps))
-    idx = c + np.arange(-span_sym//2, span_sym//2+1)*sps
-    h = h_os[idx.astype(int)].astype(complex)
-
-    # cascada para “cerrar” más la banda
-    for _ in range(cascade-1):
-        h = np.convolve(h, h)
-
-    # normalizar energía
-    h = h / np.sqrt((np.abs(h)**2).sum() + 1e-15)
-    return h
-
->>>>>>> main
-
 def rcosine(beta, sps, num_symbols_half):
     """
-    Raised Cosine (pulso de Nyquist) sobremuestreado.
-    beta in [0,1], sps: oversampling, num_symbols_half: cola a cada lado (en símbolos).
-    Normaliza energía total a 1.
+    Raised-Cosine sobremuestreado. Normaliza energía total a 1.
     """
     Tbaud = 1.0
     Nbauds = int(num_symbols_half) * 2
     t = np.arange(-0.5*Nbauds*Tbaud, 0.5*Nbauds*Tbaud, Tbaud/float(sps))
     eps = 1e-12
-
-    # Evitar divisiones por cero en t=0 y en los ceros del denominador
     t_safe = np.where(np.abs(t) < eps, eps, t)
     den = 1.0 - (2.0*beta*t_safe/Tbaud)**2
     den = np.where(np.abs(den) < eps, eps, den)
-
     y = np.sinc(t_safe/Tbaud) * (np.cos(np.pi*beta*t_safe/Tbaud) / den)
     h = y.astype(np.complex128)
     h /= np.sqrt(np.sum(np.abs(h)**2) + eps)
     return h
 
-
-# ======= Canal agresivo: RC + desfase fraccional + eco complejo (T-spaced) =======
-
-def rc_aggressive_channel(beta=0.40, span_sym=13, sps=64, frac=0.18,
+def rc_aggressive_channel(beta=0.20, span_sym=13, sps=64, frac=0.18,
                           echo_a=0.35, echo_d=1, echo_phi=np.pi*0.6,
                           normalize=True):
     """
-    Construye taps T-spaced "agresivos":
-    - RC sobremuestreado con roll-off beta
-    - muestreo a tasa de símbolo con desfase fraccional 'frac' (rompe Nyquist)
-    - suma un eco complejo (amplitud 'echo_a', retardo 'echo_d', fase 'echo_phi')
-    - normaliza energía total
+    Taps T-spaced agresivos: RC sobremuestreado + desfase fraccional + eco complejo.
     """
     assert span_sym % 2 == 1, "span_sym debe ser impar (tap central)."
-    # RC muy fino
     h_os = rcosine(beta=beta, sps=sps, num_symbols_half=span_sym//2 + 1)
 
-    # Centro + desfase fraccional
     c    = len(h_os)//2 + int(round(frac * sps))
     half = span_sym//2
     idx  = c + np.arange(-half, half+1) * sps
     idx  = np.clip(idx, 0, len(h_os)-1)
 
-    # T-spaced con timing fraccional
     h0 = h_os[idx.astype(int)]
-
-    # Eco complejo desplazado d símbolos
     he = echo_a * np.exp(1j*echo_phi) * np.roll(h0, +int(echo_d))
 
     h = h0 + he
@@ -135,68 +89,35 @@ class equalizerSimulator:
                  MU, MU_SWITCH_ENABLE, MU_FINAL, N_SWITCH,
                  USE_STABLE, STABLE_WIN, STABLE_TOL, STABLE_PATIENCE,
                  seedI, seedQ,
-                 # flags de canal
                  NORM_H_POWER=False, SNR_REF="post"):
 
         # sim
-        self.N_SYM        = int(N_SYM)
-        self.N_PLOT       = int(N_PLOT)
-        self.N_SKIP       = int(N_SKIP)
+        self.N_SYM  = int(N_SYM)
+        self.N_PLOT = int(N_PLOT)
+        self.N_SKIP = int(N_SKIP)
 
         # canal
-        self.CHAN_MODE    = str(CHAN_MODE)
-        self.SNR_DB       = None if SNR_DB is None else float(SNR_DB)  # Es/N0(dB)
-        self.SEED_NOISE   = int(SEED_NOISE)
+        self.CHAN_MODE  = str(CHAN_MODE)
+        self.SNR_DB     = None if SNR_DB is None else float(SNR_DB)
+        self.SEED_NOISE = int(SEED_NOISE)
 
-        # Si no pasan H_TAPS, construyo un canal "agresivo"
         if H_TAPS is None:
-<<<<<<< HEAD
             self.H_TAPS = rc_aggressive_channel(
                 beta=0.20, span_sym=13, sps=64, frac=0.18,
                 echo_a=0.35, echo_d=1, echo_phi=np.pi*0.6, normalize=True
             )
-=======
-            # Parámetros del canal RC "angosto"
-            sps       = 64        # sobremuestreo para construir el RC
-            beta      = 0.15      # achicar banda => más ISI
-            span_sym  = 13        # longitud impar del canal T-spaced
-            frac      = 0.12      # retardo fraccional opcional (0..1)
-
-            print(f"Generando canal RC: sps={sps}, beta={beta}, span={span_sym}, frac={frac}")
-
-            h_os = rcosine(beta=beta, sps=sps, num_symbols_half=span_sym//2 + 1)
-
-            # centro + fracción
-            c    = len(h_os)//2 + int(round(frac * sps))
-            half = span_sym//2
-            idx  = c + np.arange(-half, half+1) * sps
-            h_diezmado = h_os[idx.astype(int)]
-
-            # normalización de energía del canal T-spaced
-            h_diezmado = h_diezmado / np.sqrt(np.sum(np.abs(h_diezmado)**2) + 1e-15)
-
-            self.H_TAPS = h_diezmado.astype(np.complex128)
->>>>>>> main
         else:
             self.H_TAPS = np.asarray(H_TAPS, np.complex128)
 
         self.NORM_H_POWER = bool(NORM_H_POWER)
         self.SNR_REF      = str(SNR_REF)
 
-        # eq
-<<<<<<< HEAD
-        self.L_EQ         = int(L_EQ)
-        self.PART_N       = int(PART_N)
-        self.CENTER_TAP   = (suggest_center_tap(self.H_TAPS, self.L_EQ)
-                             if CENTER_TAP is None else int(CENTER_TAP))
+        # equalizador
+        self.L_EQ       = int(L_EQ)
+        self.PART_N     = int(PART_N)
+        self.CENTER_TAP = (suggest_center_tap(self.H_TAPS, self.L_EQ)
+                           if CENTER_TAP is None else int(CENTER_TAP))
 
-=======
-        self.L_EQ         = L_EQ
-        self.PART_N       = PART_N
-        #self.CENTER_TAP = (suggest_center_tap(self.H_TAPS, L_EQ) 
-        #                   if CENTER_TAP is None else CENTER_TAP)
-        self.CENTER_TAP = CENTER_TAP if CENTER_TAP is not None else L_EQ // 2
->>>>>>> main
         # mu / switch
         self.MU               = float(MU)
         self.MU_SWITCH_ENABLE = bool(MU_SWITCH_ENABLE)
@@ -211,15 +132,40 @@ class equalizerSimulator:
         self.seedI = int(seedI)
         self.seedQ = int(seedQ)
 
-        # buffers
+        # --- Motor FFE por bloques ---
+        self.mu_step_func = self._build_mu_step()
+        try:
+            self.ffe_motor = FFE_Engine(
+                L_eq=self.L_EQ, part_N=self.PART_N,
+                mu_init=self.MU, center_index=self.CENTER_TAP,
+                mu_step=self.mu_step_func
+            )
+        except TypeError:
+            self.ffe_motor = FFE_Engine(
+                L_eq=self.L_EQ, part_N=self.PART_N,
+                mu=self.MU, center_index=self.CENTER_TAP,
+                mu_step=self.mu_step_func
+            )
+
+        # buffers de salida/historial
+        self.num_blocks = (self.N_SYM - self.PART_N) // self.PART_N + 1 if self.N_SYM >= self.PART_N else 0
+        if self.num_blocks <= 0:
+            raise ValueError("N_SYM demasiado chico para el PART_N elegido.")
+
+        self.yI = np.zeros(self.num_blocks * self.PART_N, dtype=np.float64)
+        self.yQ = np.zeros(self.num_blocks * self.PART_N, dtype=np.float64)
+        self.yhatI = np.zeros(self.num_blocks * self.PART_N, dtype=np.float64)
+        self.yhatQ = np.zeros(self.num_blocks * self.PART_N, dtype=np.float64)
+        self.eI = np.zeros(self.num_blocks * self.PART_N, dtype=np.float64)
+        self.eQ = np.zeros(self.num_blocks * self.PART_N, dtype=np.float64)
+        self.W_histI = np.zeros((self.num_blocks, self.L_EQ), dtype=np.float64)
+        self.W_histQ = np.zeros((self.num_blocks, self.L_EQ), dtype=np.float64)
+
         self.sI = self.sQ = None
         self.x_n = self.x_det = None
-        self.yI = self.yQ = self.yhatI = self.yhatQ = None
-        self.eI = self.eQ = None
-        self.W_histI = self.W_histQ = None
-        self.w_finI = self.w_finQ = None
         self.bI_src = self.bQ_src = None
-        self.k0 = None
+        self.k0 = getattr(self.ffe_motor, "center_index",
+                   getattr(self.ffe_motor, "center", self.CENTER_TAP))
 
     def _build_mu_step(self):
         return make_mu_switch(
@@ -235,14 +181,12 @@ class equalizerSimulator:
         self.bQ_src = (self.sQ < 0).astype(np.uint8)
 
     def gen_source(self):
-        # PRBS -> QPSK
         self.sI, self.sQ = prbs_qpsk_iq(self.N_SYM, self.seedI, self.seedQ)
         self.bI_src = (self.sI < 0).astype(np.uint8)
         self.bQ_src = (self.sQ < 0).astype(np.uint8)
         return self.sI + 1j*self.sQ
 
     def pass_channel(self, s):
-        # canal FIR + AWGN
         Hq = np.array([q(h.real, FX_NARROW) + 1j*q(h.imag, FX_NARROW) for h in self.H_TAPS],
                       dtype=np.complex128)
         self.x_n, self.x_det = channel(
@@ -260,34 +204,53 @@ class equalizerSimulator:
         return self.x_n
 
     def equalize(self):
-        # FFE PBFDAF (LMS en frecuencia)
-        mu_step = self._build_mu_step()
-        (self.yI, self.yQ, self.yhatI, self.yhatQ, self.eI, self.eQ,
-         self.W_histI, self.W_histQ, self.w_finI, self.w_finQ, k0) = ffe_lms_freq_iq(
-            self.x_n.real.copy(), self.x_n.imag.copy(),
-            L_eq=self.L_EQ, part_N=self.PART_N, mu=self.MU,
-            center_index=self.CENTER_TAP, mu_step=mu_step
-        )
-        self.k0 = int(k0)
-        return k0
+        """Procesa x_n bloque a bloque con el motor FFE."""
+        xI_full = self.x_n.real.copy()
+        xQ_full = self.x_n.imag.copy()
+        out_idx = 0
+
+        for b in range(self.num_blocks):
+            start, stop = b * self.PART_N, b * self.PART_N + self.PART_N
+            x_newI = xI_full[start:stop]
+            x_newQ = xQ_full[start:stop]
+
+            (y_blkI, y_blkQ,
+             d_blkI, d_blkQ,
+             e_blkI, e_blkQ) = self.ffe_motor.process_block(x_newI, x_newQ)
+
+            self.yI[out_idx:out_idx+self.PART_N]    = y_blkI
+            self.yQ[out_idx:out_idx+self.PART_N]    = y_blkQ
+            self.yhatI[out_idx:out_idx+self.PART_N] = d_blkI
+            self.yhatQ[out_idx:out_idx+self.PART_N] = d_blkQ
+            self.eI[out_idx:out_idx+self.PART_N]    = e_blkI
+            self.eQ[out_idx:out_idx+self.PART_N]    = e_blkQ
+
+            wI, wQ, _ = self.ffe_motor.get_final_taps()
+            self.W_histI[b, :] = wI
+            self.W_histQ[b, :] = wQ
+
+            out_idx += self.PART_N
+
+        self.w_finI, self.w_finQ, _ = self.ffe_motor.get_final_taps()
+        return self.k0
 
     def plot(self,
              weights=True, profile=True, conv=True,
              time_in=True, time_out=True,
              const_in=True, const_out=True, const_dec=True,
-             chan_profile=True, freq=True):
-        # Gráficos
+             chan_profile=True, freq=True,
+             weights_smoothing_window=None):
         W_hist = self.W_histI + 1j*self.W_histQ
         w_fin  = self.w_finI  + 1j*self.w_finQ
         y_n    = self.yI + 1j*self.yQ
         yhat_n = self.yhatI + 1j*self.yhatQ
 
-        # misma escala Re/Im filtro y canal
         ylims = sym_ylim(np.real(w_fin), np.imag(w_fin),
                          np.real(self.H_TAPS), np.imag(self.H_TAPS))
 
         if weights:
-            plot_weights_labeled(W_hist, center_index=self.CENTER_TAP)
+            plot_weights_labeled(W_hist, center_index=self.CENTER_TAP,
+                                 smoothing_window=weights_smoothing_window)
         if profile:
             plot_filter_profile(w_fin, center_index=self.CENTER_TAP,
                                 ylims_re=ylims, ylims_im=ylims)
@@ -319,251 +282,237 @@ class equalizerSimulator:
         return self
 
     def ber(self, *, skip=0, lag=None, win=None, mN=None, min_overlap=None):
-        if lag is None:
-            lag_eff = 0 if (self.CHAN_MODE == "ideal") else int(self.k0)
-        else:
-            lag_eff = int(lag)
+        lag_eff = 0 if (lag is None and self.CHAN_MODE == "ideal") else (self.k0 if lag is None else int(lag))
         if win is None: win = 4 * self.PART_N
         if mN  is None: mN  = 8
         if min_overlap is None: min_overlap = max(4 * self.PART_N, 256)
-
         return _ber(self.bI_src, self.bQ_src, self.yhatI, self.yhatQ,
                     lag=lag_eff, N=int(self.PART_N), win=int(win),
                     mN=int(mN), skip=int(skip), min_overlap=int(min_overlap))
 
 
-# ============================== Runners auxiliares ==============================
+# ================== Barrido BER acelerado (dos tiros) ==================
 
-def ber_at_snr(snr_db, *, N_SYM=30000, skip=2000, runs=1, eq_params=None, reuse_src=None):
-    if eq_params is None: eq_params = {}
-    ber_sum = 0.0; berI_sum = 0.0; berQ_sum = 0.0; nbits_sum = 0
-    for r in range(runs):
-        print(f"[SNR={snr_db} dB] run {r+1}/{runs}…", flush=True)
+def ber_at_snr_until_errors(snr_db, *, E_TARGET=100, N_SYM_MAX=1_000_000, skip=2000,
+                            eq_params=None, safety=1.25):
+    """
+    1) Estima N_SYM para ~E_TARGET errores (QPSK-AWGN).
+    2) Corre una simulación con N_SYM_try. Si alcanza E_TARGET, termina.
+    3) Si no, corre una segunda simulación a N_SYM_MAX.
+    """
+    if eq_params is None:
+        eq_params = {}
+
+    p_theory   = max(_ber_qpsk_awgn_from_EsN0_dB(snr_db), 1e-12)
+    bits_need  = E_TARGET / p_theory
+    sym_need   = int(np.ceil(bits_need / 2.0))
+    N_SYM_try  = int(min(N_SYM_MAX, max(2*skip, int(safety * sym_need))))
+
+    def _one_shot(N_SYM):
         sim = equalizerSimulator(
-            N_SYM             =  N_SYM,
-            N_PLOT            =  0,
-            N_SKIP            =  0,
-            CHAN_MODE         =  eq_params.get("CHAN_MODE", "fir"),
-            H_TAPS            =  eq_params.get("H_TAPS", None),
-            SNR_DB            =  snr_db,              # Es/N0(dB)
-            SEED_NOISE        =  eq_params.get("SEED_NOISE", 5678 + r),
-            L_EQ              =  eq_params.get("L_EQ", 31),
-            PART_N            =  eq_params.get("PART_N", 16),
-            CENTER_TAP        =  eq_params.get("CENTER_TAP", None),
-            MU                =  eq_params.get("MU", 0.015),
-            MU_SWITCH_ENABLE  =  eq_params.get("MU_SWITCH_ENABLE", True),
-            MU_FINAL          =  eq_params.get("MU_FINAL", 0.006),
-            N_SWITCH          =  eq_params.get("N_SWITCH", 200),
-            USE_STABLE        =  eq_params.get("USE_STABLE", False),
-            STABLE_WIN        =  eq_params.get("STABLE_WIN", 300),
-            STABLE_TOL        =  eq_params.get("STABLE_TOL", 1.0),
-            STABLE_PATIENCE   =  eq_params.get("STABLE_PATIENCE", 80),
-            seedI             =  eq_params.get("seedI", 0x17F + r),
-            seedQ             =  eq_params.get("seedQ", 0x11D + r),
-            NORM_H_POWER      =  eq_params.get("NORM_H_POWER", False),
-            SNR_REF           =  eq_params.get("SNR_REF", "post"),
+            N_SYM=N_SYM, N_PLOT=0, N_SKIP=0,
+            CHAN_MODE=eq_params.get("CHAN_MODE", "fir"),
+            H_TAPS=eq_params.get("H_TAPS", None),
+            SNR_DB=snr_db, SEED_NOISE=eq_params.get("SEED_NOISE", 5678),
+            L_EQ=eq_params.get("L_EQ", 31),
+            PART_N=eq_params.get("PART_N", 16),
+            CENTER_TAP=eq_params.get("CENTER_TAP", None),
+            MU=eq_params.get("MU", 0.01),
+            MU_SWITCH_ENABLE=eq_params.get("MU_SWITCH_ENABLE", True),
+            MU_FINAL=eq_params.get("MU_FINAL", 0.0005),
+            N_SWITCH=eq_params.get("N_SWITCH", 800),
+            USE_STABLE=eq_params.get("USE_STABLE", False),
+            STABLE_WIN=eq_params.get("STABLE_WIN", 300),
+            STABLE_TOL=eq_params.get("STABLE_TOL", 1.0),
+            STABLE_PATIENCE=eq_params.get("STABLE_PATIENCE", 1),
+            seedI=eq_params.get("seedI", 0x17F),
+            seedQ=eq_params.get("seedQ", 0x11D),
+            NORM_H_POWER=eq_params.get("NORM_H_POWER", False),
+            SNR_REF=eq_params.get("SNR_REF", "post")
         )
-        if reuse_src is not None:
-            sI, sQ = reuse_src
-            sim.set_source(sI, sQ); s = sim.sI + 1j*sim.sQ
-        else:
-            s = sim.gen_source()
-        sim.pass_channel(s)
-        sim.equalize()
+        sim.run()
+        return sim.ber(skip=skip)
 
-        force_lag = 0 if (sim.CHAN_MODE == "ideal") else None
-        res = sim.ber(skip=skip, win=4*sim.PART_N, mN=6, lag=force_lag)
+    print(f"  [SNR={snr_db} dB] 1er tiro: {N_SYM_try} símbolos (~{E_TARGET} errores)")
+    res = _one_shot(N_SYM_try)
+    if (res.get("E_total", 0) >= E_TARGET) or (N_SYM_try >= N_SYM_MAX):
+        print(f"  [SNR={snr_db} dB] DONE -> BER={res['BER']:.3e} (Nbits={res['Nbits']}, E={res.get('E_total', -1)})")
+        return {"SNR": snr_db, "BER": res["BER"], "BER_I": res["BER_I"], "BER_Q": res["BER_Q"],
+                "Nbits": res["Nbits"], "E_total": res.get("E_total", -1)}
 
-        print(f"[SNR={snr_db} dB] run {r+1}/{runs} -> "
-              f"BER={res['BER']:.3e}, Nbits={res['Nbits']}, "
-              f"lag={res.get('lag_used')}, xform={res.get('xform_used')}", flush=True)
-        if res["Nbits"] > 0:
-            ber_sum  += res["BER"]   * res["Nbits"]
-            berI_sum += res["BER_I"] * res["Nbits"] / 2
-            berQ_sum += res["BER_Q"] * res["Nbits"] / 2
-            nbits_sum += res["Nbits"]
+    print(f"  [SNR={snr_db} dB] 2do tiro: {N_SYM_MAX} símbolos (faltaron errores)")
+    res = _one_shot(N_SYM_MAX)
+    print(f"  [SNR={snr_db} dB] DONE -> BER={res['BER']:.3e} (Nbits={res['Nbits']}, E={res.get('E_total', -1)})")
+    return {"SNR": snr_db, "BER": res["BER"], "BER_I": res["BER_I"], "BER_Q": res["BER_Q"],
+            "Nbits": res["Nbits"], "E_total": res.get("E_total", -1)}
 
-    if nbits_sum == 0:
-        print(f"[SNR={snr_db} dB] sin datos", flush=True)
-        return {"SNR": snr_db, "BER": np.nan, "BER_I": np.nan, "BER_Q": np.nan, "Nbits": 0}
 
-    ber_avg  = ber_sum  / nbits_sum
-    beri_avg = (2 * berI_sum) / nbits_sum
-    berq_avg = (2 * berQ_sum) / nbits_sum
-    print(f"[SNR={snr_db} dB] DONE -> BER={ber_avg:.3e}  (Nbits={nbits_sum})", flush=True)
-    return {"SNR": snr_db, "BER": ber_avg, "BER_I": beri_avg, "BER_Q": berq_avg, "Nbits": nbits_sum}
-
-def sweep_snr(snr_list, *, N_SYM=30000, skip=2000, runs=1, eq_params=None, reuse_src=True):
-    src = None
-    if reuse_src:
-        sI, sQ = prbs_qpsk_iq(N_SYM, 0x17F, 0x11D)
-        src = (sI, sQ)
+def sweep_snr_until_errors(snr_list, *, E_TARGET=100, N_SYM_MAX=1_000_000, skip=2000,
+                           eq_params=None, safety=1.25):
     results = []
     for i, snr in enumerate(snr_list, 1):
-        print(f"\n=== {i}/{len(snr_list)} : SNR={snr} dB ===", flush=True)
-        results.append(ber_at_snr(snr, N_SYM=N_SYM, skip=skip, runs=runs,
-                                  eq_params=eq_params, reuse_src=src))
+        print(f"\n=== {i}/{len(snr_list)} : SNR={snr} dB ===")
+        results.append(ber_at_snr_until_errors(
+            snr, E_TARGET=E_TARGET, N_SYM_MAX=N_SYM_MAX, skip=skip,
+            eq_params=eq_params, safety=safety
+        ))
     return results
 
-def plot_ber_curve(results, title="BER vs SNR"):
-    snr_esn0 = np.array([r["SNR"] for r in results], dtype=float)  # Es/N0(dB)
-    ber_sim  = np.array([max(r["BER"], 1e-12) for r in results], dtype=float)
 
-    xmin = float(np.nanmin(snr_esn0)) if snr_esn0.size else 0.0
-    xmax = float(np.nanmax(snr_esn0)) if snr_esn0.size else 12.0
-    x_dense_esn0 = np.linspace(xmin, xmax, 500)
-    ber_th = ber_qpsk_theory_esn0(x_dense_esn0)
+# ============================ Gráfico BER vs SNR ============================
+
+def plot_ber_curve(results, title="BER vs SNR", floor=1e-12, x_max=None):
+    snr_esn0 = np.array([r["SNR"] for r in results], dtype=float)
+    ber_raw  = np.array([r["BER"] for r in results], dtype=float)
+
+    ber_sim = np.where(np.isfinite(ber_raw), np.maximum(ber_raw, floor), np.nan)
+    m = ~np.isnan(ber_sim) & np.isfinite(snr_esn0)
+    snr_esn0, ber_sim = snr_esn0[m], ber_sim[m]
+
+    if not snr_esn0.size:
+        print("plot_ber_curve: No hay datos válidos para graficar.")
+        return
+
+    xmin = float(np.nanmin(snr_esn0))
+    xmax_data = float(np.nanmax(snr_esn0))
+    xmax = xmax_data if x_max is None else float(x_max)
+
+    x_dense_esn0 = np.linspace(xmin, xmax, 600)
+    ber_th = [_ber_qpsk_awgn_from_EsN0_dB(snr) for snr in x_dense_esn0]
 
     plt.figure(figsize=(6.5, 4.2))
-    plt.semilogy(x_dense_esn0, ber_th, '-', linewidth=2, label='QPSK teoría (BER vs Es/N0)')
-    plt.semilogy(snr_esn0, ber_sim, 'o-', linewidth=1, label='QPSK simulada')
+    plt.semilogy(x_dense_esn0, ber_th, '-', linewidth=2, label='QPSK teoría (Es/N0)')
+    plt.semilogy(snr_esn0, ber_sim, 'o-', linewidth=1, label='Simulación')
     plt.grid(True, which="both", linestyle=":")
-    plt.xlabel("Es/N0 [dB]")
-    plt.ylabel("BER")
+    plt.xlabel("Es/N0 [dB]"); plt.ylabel("BER")
     plt.xlim(xmin, xmax)
-    plt.ylim(1e-7, 1)
-    plt.title(title)
-    plt.legend()
-    plt.tight_layout()
+    plt.ylim(max(floor, 1e-7), 1)
+    try:
+        import math
+        xticks = np.arange(math.floor(xmin/2)*2, math.ceil(xmax/2)*2 + 0.1, 2)
+        plt.xticks(xticks)
+    except Exception:
+        pass
+    plt.title(title); plt.legend(); plt.tight_layout()
 
-def measure_ber_vs_mu(SNR_DB=8.0, mus=None, repeats=3,
-                      NSYM=10000, skip=2000, min_overlap=256,
-                      eq_mu_params=None):
-    if mus is None:
-        mus = np.logspace(-4, -1, 16)
-    if eq_mu_params is None:
-        eq_mu_params = {}
 
-    ber_means, ber_stds = [], []
+# ======================= Barrido rápido de ganancia =======================
 
-    for mu in mus:
-        vals = []
-        for r in range(repeats):
-            sim = equalizerSimulator(
-                N_SYM=NSYM, N_PLOT=0, N_SKIP=0,
-                CHAN_MODE=eq_mu_params.get("CHAN_MODE", "fir"),
-                H_TAPS=eq_mu_params.get("H_TAPS", None),
-                SNR_DB=SNR_DB, SEED_NOISE=5678 + r,
-                L_EQ=eq_mu_params.get("L_EQ", 31),
-                PART_N=eq_mu_params.get("PART_N", 16),
-                CENTER_TAP=eq_mu_params.get("CENTER_TAP", None),
-                MU=mu,
-                MU_SWITCH_ENABLE=eq_mu_params.get("MU_SWITCH_ENABLE", False),
-                MU_FINAL=eq_mu_params.get("MU_FINAL", 0.0005),
-                N_SWITCH=eq_mu_params.get("N_SWITCH", 500),
-                USE_STABLE=eq_mu_params.get("USE_STABLE", False),
-                STABLE_WIN=eq_mu_params.get("STABLE_WIN", 300),
-                STABLE_TOL=eq_mu_params.get("STABLE_TOL", 1.0),
-                STABLE_PATIENCE=eq_mu_params.get("STABLE_PATIENCE", 80),
-                seedI=eq_mu_params.get("seedI", 0x17F),
-                seedQ=eq_mu_params.get("seedQ", 0x11D),
-                NORM_H_POWER=eq_mu_params.get("NORM_H_POWER", False),
-                SNR_REF=eq_mu_params.get("SNR_REF", "post"),
-            )
-            sim.run()
-
-            res = sim.ber(skip=skip, win=4*sim.PART_N, mN=8, min_overlap=min_overlap)
-            vals.append(res["BER"])
-
-        ber_means.append(np.mean(vals))
-        ber_stds.append(np.std(vals, ddof=1) if repeats > 1 else 0.0)
-
-    return np.array(mus), np.array(ber_means), np.array(ber_stds)
+def quick_agc_scan(snrs, *, target=0.7, N_SYM=2000, mode="rms",
+                   clip=(0.25, 4.0), eq_params=None):
+    """
+    Estima multiplicador escalar que deja la entrada del ecualizador en 'target'.
+    """
+    if eq_params is None: eq_params = {}
+    out = []
+    for snr in snrs:
+        sim = equalizerSimulator(
+            N_SYM=N_SYM, N_PLOT=0, N_SKIP=0,
+            CHAN_MODE=eq_params.get("CHAN_MODE", "fir"),
+            H_TAPS=eq_params.get("H_TAPS", None),
+            SNR_DB=snr, SEED_NOISE=eq_params.get("SEED_NOISE", 5678),
+            L_EQ=eq_params.get("L_EQ", 31),
+            PART_N=eq_params.get("PART_N", 16),
+            CENTER_TAP=eq_params.get("CENTER_TAP", None),
+            MU=eq_params.get("MU", 0.006),
+            MU_SWITCH_ENABLE=False, MU_FINAL=0.0, N_SWITCH=0,
+            USE_STABLE=False, STABLE_WIN=0, STABLE_TOL=0.0, STABLE_PATIENCE=0,
+            seedI=eq_params.get("seedI", 0x17F),
+            seedQ=eq_params.get("seedQ", 0x11D),
+            NORM_H_POWER=eq_params.get("NORM_H_POWER", False),
+            SNR_REF=eq_params.get("SNR_REF", "post")
+        )
+        sim.AGC_ENABLE = False            # medir nivel crudo (sin AGC)
+        s = sim.gen_source()
+        x = sim.pass_channel(s)
+        mags = np.abs(x)
+        meas = float(np.sqrt(np.mean(mags*mags))) if mode == "rms" else float(np.mean(mags))
+        g_est = float(np.clip(target / max(meas, 1e-12), clip[0], clip[1]))
+        out.append({"SNR": snr, "gain": g_est, "meas": meas})
+        print(f"SNR={snr:>2} dB -> meas={meas:.4f}, gain≈{g_est:.3f}")
+    return out
 
 
 # =================================== Main ===================================
 
 if __name__ == "__main__":
-    sim = equalizerSimulator(
-        N_SYM            =  10000,
-        N_PLOT           =  10000,
-        N_SKIP           =  0,
-        CHAN_MODE        =  "fir",
-<<<<<<< HEAD
-        H_TAPS           =  None,   # usa el canal agresivo por defecto
-        SNR_DB           =  15,
-=======
-        H_TAPS           =  taps_rc_narrow(beta=0.15, span_sym=13, frac=0.12, cascade=2),  # <-- ¡MODIFICADO!
-        SNR_DB           =  20,    
->>>>>>> main
-        SEED_NOISE       =  5678,
-        L_EQ             =  31,
-        PART_N           =  16,
-        CENTER_TAP       =  None,
-<<<<<<< HEAD
-        MU               =  0.009, #si lo subis se rompe 
-        MU_SWITCH_ENABLE =  True, 
-        MU_FINAL         =  0.0003,
-=======
-        MU               =  0.004,
-        MU_SWITCH_ENABLE =  False,
-        MU_FINAL         =  0.0004,
->>>>>>> main
-        N_SWITCH         =  500,
-        USE_STABLE       =  False,
-        STABLE_WIN       =  300,
-        STABLE_TOL       =  1.0,
-        STABLE_PATIENCE  =  80,
-        seedI            =  0x17F,
-        seedQ            =  0x11D,
-        NORM_H_POWER     =  False,
-        SNR_REF          =  "post"
-    ).run()
 
-    # Gráficos principales
-    sim.plot(
-        weights      =  True,
-        profile      =  False,
-        chan_profile =  True,
-        freq         =  True,
-        conv         =  True,
-        time_in      =  False,
-        const_in     =  True,
-        time_out     =  False,
-        const_out    =  True,
-        const_dec    =  True
-    )
+    RUN_SINGLE_SIM      = True
+    RUN_ADAPTIVE_SWEEP  = True
+    RUN_BER_VS_MU_SWEEP = False
 
-    print("CENTER_TAP =", sim.CENTER_TAP, "k0 =", sim.k0)
-    res = sim.ber(skip=5000, win=4*sim.PART_N, mN=8)
-    print("BER:", res)
+    if RUN_SINGLE_SIM:
+        print("\n" + "="*30)
+        print("=== SIMULACIÓN ÚNICA (DEBUG) ===")
+        print("="*30)
+        sim = equalizerSimulator(
+            N_SYM=20000, 
+            N_PLOT=10000, 
+            N_SKIP=0,
+            CHAN_MODE="fir", 
+            H_TAPS=None,
+            SNR_DB=20, 
+            SEED_NOISE=5678,
+            L_EQ=31, 
+            PART_N=16, 
+            CENTER_TAP=None,
+            MU=0.006, 
+            MU_SWITCH_ENABLE=True, 
+            MU_FINAL=0.0004, 
+            N_SWITCH=500,
+            USE_STABLE=False, 
+            STABLE_WIN=300, 
+            STABLE_TOL=1.0, 
+            TABLE_PATIENCE=80,
+            seedI=0x17F, 
+            seedQ=0x11D, 
+            NORM_H_POWER=False, 
+            SNR_REF="post"
+        ).run()
+        
+        sim.plot(
+            weights=True, weights_smoothing_window=None,
+            profile=False, chan_profile=True, freq=True, conv=True,
+            time_in=False, const_in=True, time_out=False, const_out=True, const_dec=True
+        )
+        print("CENTER_TAP =", sim.CENTER_TAP, "k0 =", sim.k0)
+        res = sim.ber(skip=5000, win=4*sim.PART_N, mN=8)
+        print("BER:", res)
 
-    # Si querés un sweep de SNR:
-    RUN_BER_SWEEP = False
-    if RUN_BER_SWEEP:
-        SNRS = list(range(0, 13, 1))
+    if RUN_ADAPTIVE_SWEEP:
+        SNRS = [0, 2, 4, 6, 8, 10, 12, 14, 16]
         EQ_PARAMS = dict(
-            CHAN_MODE        =  "fir",
-            L_EQ             =  31,
-            PART_N           =  16,
-            CENTER_TAP       =  None,
-            MU               =  0.008,
-            MU_SWITCH_ENABLE =  True,
-            MU_FINAL         =  0.0006,
-            N_SWITCH         =  1000,
-            USE_STABLE       =  False,
-            STABLE_WIN       =  300,
-            STABLE_TOL       =  1.0,
-            STABLE_PATIENCE  =  80,
-            H_TAPS           =  None,
-            NORM_H_POWER     =  False,
-            SNR_REF          =  "post",
+            CHAN_MODE="fir", 
+            H_TAPS=None, 
+            L_EQ=31, 
+            PART_N=16, 
+            CENTER_TAP=None,
+            MU=0.009, 
+            MU_SWITCH_ENABLE=True, 
+            MU_FINAL=0.0003, 
+            N_SWITCH=500,
+            USE_STABLE=False, 
+            STABLE_WIN=300, 
+            STABLE_TOL=1.0, 
+            STABLE_PATIENCE=80,
+            NORM_H_POWER=False, 
+            SNR_REF="post", 
+            seedI=0x17F, 
+            seedQ=0x11D
         )
-        SWEEP_N_SYM     = 10000
-        SWEEP_SKIP      = 5000
-        SWEEP_RUNS      = 1
-        SWEEP_REUSE_SRC = True
-
-        results = sweep_snr(
-            SNRS,
-            N_SYM     = SWEEP_N_SYM,
-            skip      = SWEEP_SKIP,
-            runs      = SWEEP_RUNS,
-            eq_params = EQ_PARAMS,
-            reuse_src = SWEEP_REUSE_SRC
+        results = sweep_snr_until_errors(
+            SNRS, 
+            E_TARGET=100, 
+            N_SYM_MAX=1_000_000, 
+            skip=20000,
+            eq_params=EQ_PARAMS, 
+            safety=1.5
         )
+        print("\n--- Resultados del Barrido Adaptativo ---")
         for r in results:
-            print(f"SNR(Es/N0)={r['SNR']:>2} dB | BER={r['BER']:.3e} | Nbits={r['Nbits']}")
-        plot_ber_curve(results, title="QPSK: BER teórica vs simulada")
+            print(f"SNR(Es/N0)={r['SNR']:>2} dB | BER={r['BER']:.3e} | Nbits={r['Nbits']:<10} | Errores={r['E_total']}")
+        plot_ber_curve(results, title="QPSK: BER teórica vs simulada (Adaptativo)", x_max=20)
+
+    # (RUN_BER_VS_MU_SWEEP omitido para brevedad; usar tu versión si lo necesitás)
 
     plt.show()
