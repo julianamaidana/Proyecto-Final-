@@ -156,8 +156,7 @@ def plot_ber_curve(results, title="QPSK: BER teorica vs simulada", xmax=None, fl
 # main
 if __name__ == "__main__":
     # Barrido 0..12 dB (paso 1)
-    #SNRS = list(range(0, 13, 1))  # Es/N0(dB)
-    SNRS = [0, 2, 4, 6, 8, 10, 12, 14, 16]
+    SNRS = list(range(0, 13, 1))  # Es/N0(dB)
 
     EQ_PARAMS = dict(
         CHAN_MODE        = "fir",
@@ -168,7 +167,7 @@ if __name__ == "__main__":
         MU               = 0.015,
         MU_SWITCH_ENABLE = True,
         MU_FINAL         = 0.006,
-        N_SWITCH         = 2000,
+        N_SWITCH         = 200,
         USE_STABLE       = False,
         STABLE_WIN       = 300,
         STABLE_TOL       = 1.0,
