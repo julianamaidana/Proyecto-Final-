@@ -504,7 +504,7 @@ if __name__ == "__main__":
             SNRS, 
             E_TARGET=100, 
             N_SYM_MAX=1_000_000, 
-            skip=20000,
+            skip=40000,
             eq_params=EQ_PARAMS, 
             safety=1.5
         )
