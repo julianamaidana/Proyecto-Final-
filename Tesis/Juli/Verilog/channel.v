@@ -1,82 +1,96 @@
 `timescale 1ns/1ps
 
 module channel_with_noise #(
-    parameter DWIDTH      = 16, // Ancho de datos de la señal 
-    parameter CWIDTH      = 8,  // Ancho de coeficientes S(8,6)
-    parameter NOISE_WIDTH = 16, // Salida del IP Core S(16,11)
-    parameter SNR_WIDTH   = 11  // Factor de escala SNR S(11,10)
+    // ================================================================
+    // Datos y coeficientes
+    // ================================================================
+    parameter integer DWIDTH      = 16,  // ancho de In_I/In_Q y Out_I/Out_Q
+    parameter integer L_CH        = 13,  // 13 taps
+    parameter integer CWIDTH      = 9,   // coeficientes S(9,7)
+    parameter integer DATA_F      = 7,   // Q7 para datos
+    parameter integer COEF_F      = 7,   // Q7 para coeficientes
+
+    // ================================================================
+    // Ruido
+    // ================================================================
+    parameter integer NOISE_WIDTH = 16,
+    parameter integer SNR_WIDTH   = 11,
+    parameter integer SIGMA_F     = 10,  // sigma_scale interpretado como Q10 (S(11,10))
+
+    // ================================================================
+    // DEFINICIÓN DEL CANAL (coeficientes empaquetados)
+    // Orden: el primer coeficiente es el tap 0.
+    // ================================================================
+    parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
+        9'sd-1,  9'sd2,   9'sd-3,  9'sd6,   9'sd-11, 9'sd27,  9'sd113,
+        9'sd-30, 9'sd10,  9'sd-5,  9'sd3,   9'sd-2,  9'sd1
+    },
+
+    parameter [L_CH*CWIDTH-1:0] H_IMAG_INIT = {
+        9'sd0,  9'sd0,  9'sd1,  9'sd-1, 9'sd2,  9'sd-4, 9'sd9,
+        9'sd39, 9'sd-6, 9'sd3,  9'sd-2, 9'sd1,  9'sd0
+    }
 )(
-    input  wire                         clk,
-    input  wire                         rst,
-    
-    // --- Entradas de Señal (Compleja) ---
-    input  wire signed [DWIDTH-1:0]     In_I, // Señal de entrada Real
-    input  wire signed [DWIDTH-1:0]     In_Q, // Señal de entrada Imag
-    
-    // --- Configuración ---
-    // Coeficientes para el canal complejo h = h_R + j h_I
-    input  wire signed [CWIDTH-1:0]     h_real_coeff_in, 
-    input  wire signed [CWIDTH-1:0]     h_imag_coeff_in,
-    input  wire                         coeff_wr_en, // Habilitador para cargar coeficientes
-    
-    // Factor "Sigma" para ajustar la SNR
-    input  wire signed [SNR_WIDTH-1:0]  sigma_scale, 
-    
-    // --- Salidas (Compleja con Ruido) ---
-    output wire signed [DWIDTH-1:0]     Out_I,
-    output wire signed [DWIDTH-1:0]     Out_Q
+    input  wire                        clk,
+    input  wire                        rst,
+    input  wire signed [DWIDTH-1:0]    In_I,
+    input  wire signed [DWIDTH-1:0]    In_Q,
+
+    input  wire signed [SNR_WIDTH-1:0] sigma_scale,
+
+    output wire signed [DWIDTH-1:0]    Out_I,
+    output wire signed [DWIDTH-1:0]    Out_Q
 );
 
     // ================================================================
-    // 1. LOS 4 FILTROS 
-    //    Implementa la convolución compleja: (I+jQ)*(hR+jhI)
+    // 1) LOS 4 FIR (canal complejo)
     // ================================================================
-    
-    wire signed [DWIDTH-1:0] y_ii, y_qq, y_iq, y_qi;
+    wire signed [DWIDTH-1:0] y_ii, y_qq, y_iq, y_qi; // salidas internas de los FIR
 
-    // Instancia 1: Camino I -> I (Usa h_Real) -> Parte del término Real
-    filtro_fir #(.H(11), .W(DWIDTH)) u_fir_ii (
-        .clk      (clk),
-        .rst      (rst),
-        .din      (In_I), 
-        .coeff_in (h_real_coeff_in), 
-        .wr_en    (coeff_wr_en),
-        .dout     (y_ii)
+    // I -> I : I*hR
+    filtro_fir #(
+        .H(L_CH), .W(DWIDTH), .CW(CWIDTH),
+        .DATA_F(DATA_F), .COEF_F(COEF_F),
+        .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
+        .COEFFS_VECTOR(H_REAL_INIT)
+    ) u_fir_ii (
+        .clk(clk), .rst(rst), .din(In_I), .dout(y_ii)
     );
 
-    // Instancia 2: Camino Q -> Q (Usa h_Imag) -> Parte del término Real (Negativo)
-    filtro_fir #(.H(11), .W(DWIDTH)) u_fir_qq (
-        .clk      (clk),
-        .rst      (rst),
-        .din      (In_Q), 
-        .coeff_in (h_imag_coeff_in), 
-        .wr_en    (coeff_wr_en),
-        .dout     (y_qq)
+    // Q -> Q : Q*hR
+    filtro_fir #(
+        .H(L_CH), .W(DWIDTH), .CW(CWIDTH),
+        .DATA_F(DATA_F), .COEF_F(COEF_F),
+        .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
+        .COEFFS_VECTOR(H_REAL_INIT)
+    ) u_fir_qq (
+        .clk(clk), .rst(rst), .din(In_Q), .dout(y_qq)
     );
 
-    // Instancia 3: Camino I -> Q (Usa h_Imag) -> Parte del término Imag
-    filtro_fir #(.H(11), .W(DWIDTH)) u_fir_iq (
-        .clk      (clk),
-        .rst      (rst),
-        .din      (In_I), 
-        .coeff_in (h_imag_coeff_in), 
-        .wr_en    (coeff_wr_en),
-        .dout     (y_iq)
+    // I -> Q : I*hI
+    filtro_fir #(
+        .H(L_CH), .W(DWIDTH), .CW(CWIDTH),
+        .DATA_F(DATA_F), .COEF_F(COEF_F),
+        .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
+        .COEFFS_VECTOR(H_IMAG_INIT)
+    ) u_fir_iq (
+        .clk(clk), .rst(rst), .din(In_I), .dout(y_iq)
     );
 
-    // Instancia 4: Camino Q -> I (Usa h_Real) -> Parte del término Imag
-    filtro_fir #(.H(11), .W(DWIDTH)) u_fir_qi (
-        .clk      (clk),
-        .rst      (rst),
-        .din      (In_Q), 
-        .coeff_in (h_real_coeff_in), 
-        .wr_en    (coeff_wr_en),
-        .dout     (y_qi)
+    // Q -> I : Q*hI
+    filtro_fir #(
+        .H(L_CH), .W(DWIDTH), .CW(CWIDTH),
+        .DATA_F(DATA_F), .COEF_F(COEF_F),
+        .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
+        .COEFFS_VECTOR(H_IMAG_INIT)
+    ) u_fir_qi (
+        .clk(clk), .rst(rst), .din(In_Q), .dout(y_qi)
     );
 
     // ================================================================
-    // 2. COMBINACIÓN (Sumadores/Restadores)
-    //    Matemática: (I*hR - Q*hI) + j(I*hI + Q*hR)
+    // 2) COMBINACIÓN COMPLEJA
+    // yI = I*hR - Q*hI
+    // yQ = I*hI + Q*hR
     // ================================================================
     reg signed [DWIDTH-1:0] channel_out_I;
     reg signed [DWIDTH-1:0] channel_out_Q;
@@ -86,68 +100,94 @@ module channel_with_noise #(
             channel_out_I <= {DWIDTH{1'b0}};
             channel_out_Q <= {DWIDTH{1'b0}};
         end else begin
-            // Parte Real: Resta (por j*j = -1)
-            channel_out_I <= y_ii - y_qq; 
-            // Parte Imaginaria: Suma
-            channel_out_Q <= y_iq + y_qi; 
+            channel_out_I <= y_ii - y_qi;  // I*hR - Q*hI
+            channel_out_Q <= y_iq + y_qq;  // I*hI + Q*hR
         end
     end
-    
+
+   ============================================================
     // ================================================================
-    // 3. GENERADOR DE RUIDO Y ESCALADO (Sigma)
+    // GENERADORES DE RUIDO GNG (OpenCores)
     // ================================================================
-    
-    // Cables para salida cruda del IP Core
     wire signed [NOISE_WIDTH-1:0] raw_noise_I;
     wire signed [NOISE_WIDTH-1:0] raw_noise_Q;
-    
-    // Instancia del IP Core (Nombre genérico, se ajustara cuando tengamos las cosas)
-    gng_core u_noise_gen (
-        .clk         (clk),
-        .rst         (rst),
-        .noise_out_1 (raw_noise_I),
-        .noise_out_2 (raw_noise_Q) 
+
+    // Generador para el Canal I
+    // Usamos las semillas por defecto 
+    gng #(
+        .INIT_Z1(64'h123456789ABCDEF0),
+        .INIT_Z2(64'h0FEDCBA987654321),
+        .INIT_Z3(64'hA5A5A5A55A5A5A5A)
+    ) u_noise_gen_I (
+        .clk        (clk),
+        .rst_n      (!rst),      // Ojo: Tu rst es activo alto, el IP pide activo bajo
+        .ce         (1'b1),      // Siempre habilitado
+        .valid_out  (),          // No lo necesitamos si asumimos flujo continuo
+        .data_out   (raw_noise_I)
     );
 
-    // --- Multiplicación por Sigma ---
-    // Resultado crece a (NOISE_WIDTH + SNR_WIDTH) bits
+    // Generador para el Canal Q
+    gng #(
+        .INIT_Z1(64'h876543210FEDCBA9), 
+        .INIT_Z2(64'h1029384756AFBECD), 
+        .INIT_Z3(64'hF0F0F0F00F0F0F0F)  
+    ) u_noise_gen_Q (
+        .clk        (clk),
+        .rst_n      (!rst),
+        .ce         (1'b1),
+        .valid_out  (),
+        .data_out   (raw_noise_Q)
+    );
+
     wire signed [NOISE_WIDTH + SNR_WIDTH - 1 : 0] mult_res_I;
     wire signed [NOISE_WIDTH + SNR_WIDTH - 1 : 0] mult_res_Q;
 
     assign mult_res_I = raw_noise_I * sigma_scale;
     assign mult_res_Q = raw_noise_Q * sigma_scale;
 
-    // Seleccionamos los bits más significativos válidos para volver a 16 bits.
+    // se guarda el ruido con ancho de producto 
+    wire signed [NOISE_WIDTH + SNR_WIDTH - 1 : 0] noise_scaled_I;
+    wire signed [NOISE_WIDTH + SNR_WIDTH - 1 : 0] noise_scaled_Q;
+
+    assign noise_scaled_I = mult_res_I >>> SIGMA_F;
+    assign noise_scaled_Q = mult_res_Q >>> SIGMA_F;
+
+    // Saturación del ruido a DWIDTH antes de sumarlo (evita wrap)
+    localparam signed [DWIDTH-1:0] MAX_POS = {1'b0, {(DWIDTH-1){1'b1}}};
+    localparam signed [DWIDTH-1:0] MAX_NEG = {1'b1, {(DWIDTH-1){1'b0}}};
+
+    function [DWIDTH-1:0] sat_to_DWIDTH;
+        input signed [NOISE_WIDTH + SNR_WIDTH - 1 : 0] x;
+        begin
+            // Overflow si los bits altos no son extensión del signo de x[DWIDTH-1]
+            if (| ( x[NOISE_WIDTH+SNR_WIDTH-1:DWIDTH] ^
+                    {(NOISE_WIDTH+SNR_WIDTH-DWIDTH){x[DWIDTH-1]}} )) begin
+                sat_to_DWIDTH = x[NOISE_WIDTH+SNR_WIDTH-1] ? MAX_NEG : MAX_POS;
+            end else begin
+                sat_to_DWIDTH = x[DWIDTH-1:0];
+            end
+        end
+    endfunction
+
     wire signed [DWIDTH-1:0] final_noise_I;
     wire signed [DWIDTH-1:0] final_noise_Q;
-    
-    assign final_noise_I = mult_res_I[NOISE_WIDTH + SNR_WIDTH - 2 -: DWIDTH];
-    assign final_noise_Q = mult_res_Q[NOISE_WIDTH + SNR_WIDTH - 2 -: DWIDTH];
 
-    // ================================================================
-    // 4. SUMA FINAL CON SATURACIÓN 
-    //    Evita overflow si Señal + Ruido > Max Valor posible
-    // ================================================================
-    
-    // Usamos 1 bit extra para detectar el desbordamiento
+    assign final_noise_I = sat_to_DWIDTH(noise_scaled_I);
+    assign final_noise_Q = sat_to_DWIDTH(noise_scaled_Q);
+
+    // Suma final con saturación
     wire signed [DWIDTH:0] sum_temp_I;
     wire signed [DWIDTH:0] sum_temp_Q;
 
     assign sum_temp_I = {channel_out_I[DWIDTH-1], channel_out_I} + {final_noise_I[DWIDTH-1], final_noise_I};
     assign sum_temp_Q = {channel_out_Q[DWIDTH-1], channel_out_Q} + {final_noise_Q[DWIDTH-1], final_noise_Q};
 
-    // Constantes para saturación (Máximo Positivo y Máximo Negativo)
-    localparam signed [DWIDTH-1:0] MAX_POS = {1'b0, {(DWIDTH-1){1'b1}}}; // 011...1
-    localparam signed [DWIDTH-1:0] MAX_NEG = {1'b1, {(DWIDTH-1){1'b0}}}; // 100...0
+    assign Out_I = (sum_temp_I[DWIDTH] ^ sum_temp_I[DWIDTH-1]) ?
+                   (sum_temp_I[DWIDTH] ? MAX_NEG : MAX_POS) :
+                   sum_temp_I[DWIDTH-1:0];
 
-    // Lógica de asignación con saturación
-    // Si los dos bits superiores (Signo Extendido y Signo Real) son diferentes, hubo overflow.
-    assign Out_I = (sum_temp_I[DWIDTH] ^ sum_temp_I[DWIDTH-1]) ? 
-                   (sum_temp_I[DWIDTH] ? MAX_NEG : MAX_POS) : // Hubo overflow -> Saturar
-                   sum_temp_I[DWIDTH-1:0];                    // No hubo -> Pasar valor
-
-    assign Out_Q = (sum_temp_Q[DWIDTH] ^ sum_temp_Q[DWIDTH-1]) ? 
-                   (sum_temp_Q[DWIDTH] ? MAX_NEG : MAX_POS) : 
+    assign Out_Q = (sum_temp_Q[DWIDTH] ^ sum_temp_Q[DWIDTH-1]) ?
+                   (sum_temp_Q[DWIDTH] ? MAX_NEG : MAX_POS) :
                    sum_temp_Q[DWIDTH-1:0];
 
 endmodule
