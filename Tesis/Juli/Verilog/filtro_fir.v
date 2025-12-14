@@ -4,15 +4,15 @@ module filtro_fir #(
     // --------------------------
     // Parámetros principales
     // --------------------------
-    parameter integer H  = 13,   // taps
-    parameter integer W  = 16,   // ancho datos din/dout
-    parameter integer CW = 9,    // ancho coeficientes
+    parameter  H  = 13,   // taps
+    parameter  W  = 16,   // ancho datos din/dout
+    parameter  CW = 9,    // ancho coeficientes
 
     // --------------------------
     // Punto fijo explícito
     // --------------------------
-    parameter integer DATA_F = 7, // fraccionales de din/dout
-    parameter integer COEF_F = 7, // fraccionales del coef
+    parameter  DATA_F = 7, // fraccionales de din/dout
+    parameter  COEF_F = 7, // fraccionales del coef
 
     // --------------------------
     // Opciones de salida

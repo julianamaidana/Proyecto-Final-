@@ -2,42 +2,40 @@
 
 module channel_with_noise #(
     // ================================================================
-    // Datos y coeficientes
+    // Datos y coeficientes (SIN integer)
     // ================================================================
-    parameter integer DWIDTH      = 16,  // ancho de In_I/In_Q y Out_I/Out_Q
-    parameter integer L_CH        = 13,  // 13 taps
-    parameter integer CWIDTH      = 9,   // coeficientes S(9,7)
-    parameter integer DATA_F      = 7,   // Q7 para datos
-    parameter integer COEF_F      = 7,   // Q7 para coeficientes
+    parameter DWIDTH      = 16,  
+    parameter L_CH        = 13,  
+    parameter CWIDTH      = 9,   
+    parameter DATA_F      = 7,   
+    parameter COEF_F      = 7,   
 
     // ================================================================
     // Ruido
     // ================================================================
-    parameter integer NOISE_WIDTH = 16,
-    parameter integer SNR_WIDTH   = 11,
-    parameter integer SIGMA_F     = 10,  // sigma_scale interpretado como Q10 (S(11,10))
+    parameter NOISE_WIDTH = 16,
+    parameter SNR_WIDTH   = 11,
+    parameter SIGMA_F     = 10,  
 
     // ================================================================
-    // DEFINICIÓN DEL CANAL (coeficientes empaquetados)
-    // Orden: el primer coeficiente es el tap 0.
+    // DEFINICIÓN DEL CANAL
     // ================================================================
+  
     parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
-        9'sd-1,  9'sd2,   9'sd-3,  9'sd6,   9'sd-11, 9'sd27,  9'sd113,
-        9'sd-30, 9'sd10,  9'sd-5,  9'sd3,   9'sd-2,  9'sd1
+        -9'sd1,   9'sd2,  -9'sd3,   9'sd6,  -9'sd11,  9'sd27,   9'sd113,
+       -9'sd30,   9'sd10, -9'sd5,   9'sd3,  -9'sd2,   9'sd1
     },
 
     parameter [L_CH*CWIDTH-1:0] H_IMAG_INIT = {
-        9'sd0,  9'sd0,  9'sd1,  9'sd-1, 9'sd2,  9'sd-4, 9'sd9,
-        9'sd39, 9'sd-6, 9'sd3,  9'sd-2, 9'sd1,  9'sd0
+        9'sd0,   9'sd0,   9'sd1,  -9'sd1,   9'sd2,  -9'sd4,   9'sd9,
+        9'sd39, -9'sd6,   9'sd3,  -9'sd2,   9'sd1,   9'sd0
     }
 )(
     input  wire                        clk,
     input  wire                        rst,
     input  wire signed [DWIDTH-1:0]    In_I,
     input  wire signed [DWIDTH-1:0]    In_Q,
-
     input  wire signed [SNR_WIDTH-1:0] sigma_scale,
-
     output wire signed [DWIDTH-1:0]    Out_I,
     output wire signed [DWIDTH-1:0]    Out_Q
 );
@@ -105,7 +103,6 @@ module channel_with_noise #(
         end
     end
 
-   ============================================================
     // ================================================================
     // GENERADORES DE RUIDO GNG (OpenCores)
     // ================================================================
@@ -120,7 +117,7 @@ module channel_with_noise #(
         .INIT_Z3(64'hA5A5A5A55A5A5A5A)
     ) u_noise_gen_I (
         .clk        (clk),
-        .rst_n      (!rst),      // Ojo: Tu rst es activo alto, el IP pide activo bajo
+        .rstn      (!rst),      // Ojo: Tu rst es activo alto, el IP pide activo bajo
         .ce         (1'b1),      // Siempre habilitado
         .valid_out  (),          // No lo necesitamos si asumimos flujo continuo
         .data_out   (raw_noise_I)
@@ -133,7 +130,7 @@ module channel_with_noise #(
         .INIT_Z3(64'hF0F0F0F00F0F0F0F)  
     ) u_noise_gen_Q (
         .clk        (clk),
-        .rst_n      (!rst),
+        .rstn      (!rst),
         .ce         (1'b1),
         .valid_out  (),
         .data_out   (raw_noise_Q)
