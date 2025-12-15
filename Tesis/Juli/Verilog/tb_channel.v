@@ -79,8 +79,7 @@ module tb_channel;
 
         // --- D. PRUEBA 3: Señal + Ruido ---
         $display("Iniciando Prueba 3: Senal CON Ruido...");
-        sigma_scale = 11'd200; // Ruido moderado
-        
+        sigma_scale = 11'd1000;  // Ruido fuerte        
         #5000;
         
         // --- E. PRUEBA 4: Saturación ---
