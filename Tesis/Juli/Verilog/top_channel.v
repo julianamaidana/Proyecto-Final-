@@ -4,7 +4,7 @@ module channel_with_noise #(
     // ================================================================
     // Datos y coeficientes (SIN integer)
     // ================================================================
-    parameter DWIDTH      = 16,  
+    parameter DWIDTH      = 9,  
     parameter L_CH        = 13,  
     parameter CWIDTH      = 9,   
     parameter DATA_F      = 7,   

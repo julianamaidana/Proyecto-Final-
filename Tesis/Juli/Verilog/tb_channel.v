@@ -5,7 +5,7 @@ module tb_channel;
     // ============================================================
     // 1. PARAMETROS
     // ============================================================
-    parameter DWIDTH = 16;
+    parameter DWIDTH = 9;
     parameter SNR_WIDTH = 11;
     
     reg clk;

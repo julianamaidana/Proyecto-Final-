@@ -5,7 +5,7 @@ module filtro_fir #(
     // Parámetros principales
     // --------------------------
     parameter  H  = 13,   // taps
-    parameter  W  = 16,   // ancho datos din/dout
+    parameter  W  = 9,   // ancho datos din/dout
     parameter  CW = 9,    // ancho coeficientes
 
     // --------------------------
