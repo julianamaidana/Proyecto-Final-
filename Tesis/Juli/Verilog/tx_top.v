@@ -1,7 +1,7 @@
 module tx_top (
     input  wire clk,
     input  wire reset,
-    output wire signed [15:0] sI_out, // Recomendado: 16 bits para entrar a la FFT
+    output wire signed [15:0] sI_out, 
     output wire signed [15:0] sQ_out
 );
 
