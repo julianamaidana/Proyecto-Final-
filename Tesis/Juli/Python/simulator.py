@@ -79,6 +79,83 @@ def rc_aggressive_channel(beta=0.20, span_sym=13, sps=64, frac=0.18,
     return h.astype(np.complex128)
 
 
+# ===================== Debug: imprimir taps del canal =====================
+
+PRINT_CH_TAPS = True      # ponelo en False si no querés imprimir
+_PRINTED_CH_TAPS = False  # interno: para imprimir una sola vez
+
+def _fx_get(fx, key, default):
+    # Soporta FX como dict o como objeto con atributos
+    try:
+        return fx[key]
+    except Exception:
+        return getattr(fx, key, default)
+
+def _q_sfixed_int(x, *, N, F):
+    """
+    Cuantiza a S(N,F) con:
+      - redondeo ties-to-even (np.rint)
+      - saturación a rango de N bits con signo
+    Devuelve enteros (representación escalada por 2^F).
+    """
+    x = np.asarray(x, dtype=np.float64)
+    scale = 2**F
+    xi = np.rint(x * scale).astype(np.int64)  # round-even
+    minv = -(2**(N-1))
+    maxv =  (2**(N-1)) - 1
+    xi = np.clip(xi, minv, maxv)
+    return xi.astype(int)
+
+def _sv_sfixed_list(int_list, *, N, per_line=8, indent="    "):
+    """
+    Formatea como SystemVerilog:
+      '{N'sd12, N'sd-5, ...}
+    """
+    chunks = []
+    for i in range(0, len(int_list), per_line):
+        part = int_list[i:i+per_line]
+        chunks.append(indent + ", ".join([f"{N}'sd{v}" for v in part]))
+    return "'{\n" + ",\n".join(chunks) + "\n}"
+
+def print_channel_taps(h, *, N, F, tag="Hq"):
+    """
+    Imprime taps del canal (h ya puede venir cuantizado):
+      - float (hI/hQ)
+      - enteros S(N,F) (hI_int/hQ_int)
+      - formato pegable para SystemVerilog
+    """
+    h = np.asarray(h, dtype=np.complex128)
+    L = len(h)
+    pwr = float(np.sum(np.abs(h)**2))
+
+    print("\n" + "="*60)
+    print(f"=== {tag}: taps del canal ===")
+    print(f"L (taps) = {L}")
+    print(f"Sum |h[k]|^2 = {pwr:.8f}")
+    print("-"*60)
+
+    # Float (lo que realmente usa tu simulación si h es Hq)
+    print("\n--- h (float) ---")
+    print("hI =", np.array2string(h.real, precision=10, separator=", "))
+    print("hQ =", np.array2string(h.imag, precision=10, separator=", "))
+
+    # Enteros S(N,F)
+    hI_int = _q_sfixed_int(h.real, N=N, F=F).tolist()
+    hQ_int = _q_sfixed_int(h.imag, N=N, F=F).tolist()
+
+    print(f"\n--- h cuantizado a S({N},{F}) (enteros * 2^{F}) ---")
+    print("hI_int =", hI_int)
+    print("hQ_int =", hQ_int)
+
+    # SystemVerilog
+    print("\n--- SystemVerilog (pegable) ---")
+    print(f"localparam int L_CH = {L};")
+    print(f"localparam int COEF_W = {N}; // S({N},{F})")
+    print(f"localparam logic signed [COEF_W-1:0] H_I [0:L_CH-1] = {_sv_sfixed_list(hI_int, N=N)};")
+    print(f"localparam logic signed [COEF_W-1:0] H_Q [0:L_CH-1] = {_sv_sfixed_list(hQ_int, N=N)};")
+    print("="*60 + "\n")
+
+
 # =============================== Simulador FFE ===============================
 
 class equalizerSimulator:
@@ -187,13 +264,25 @@ class equalizerSimulator:
         return self.sI + 1j*self.sQ
 
     def pass_channel(self, s):
+        # 1) Cuantización REAL del canal (la que usa tu simulación): FX_NARROW (S(9,7))
         Hq = np.array([q(h.real, FX_NARROW) + 1j*q(h.imag, FX_NARROW) for h in self.H_TAPS],
                       dtype=np.complex128)
+
+        # 2) Imprimir EXACTAMENTE esos taps (una sola vez)
+        global _PRINTED_CH_TAPS
+        if PRINT_CH_TAPS and (not _PRINTED_CH_TAPS):
+            Nn = int(_fx_get(FX_NARROW, "N", 9))
+            Fn = int(_fx_get(FX_NARROW, "F", 7))
+            print_channel_taps(Hq, N=Nn, F=Fn, tag="Hq (cuantizado con FX_NARROW)")
+            _PRINTED_CH_TAPS = True
+
+        # 3) Pasar por canal + AWGN
         self.x_n, self.x_det = channel(
             s, mode=self.CHAN_MODE, h=Hq, SNR_dB=self.SNR_DB,
             seed=self.SEED_NOISE, return_det=True,
             norm_h_power=self.NORM_H_POWER, snr_ref=self.SNR_REF
         )
+
         if self.SNR_DB is not None:
             noise = self.x_n - self.x_det
             snr_meas = 10*np.log10(
@@ -201,6 +290,7 @@ class equalizerSimulator:
                 (np.mean(np.abs(noise)**2)+1e-12)
             )
             print(f"SNR pedida: {self.SNR_DB:.2f} dB | SNR medida: {snr_meas:.2f} dB")
+
         return self.x_n
 
     def equalize(self):
@@ -422,7 +512,7 @@ def quick_agc_scan(snrs, *, target=0.7, N_SYM=2000, mode="rms",
             NORM_H_POWER=eq_params.get("NORM_H_POWER", False),
             SNR_REF=eq_params.get("SNR_REF", "post")
         )
-        sim.AGC_ENABLE = False            # medir nivel crudo (sin AGC)
+        sim.AGC_ENABLE = False  # medir nivel crudo (sin AGC)
         s = sim.gen_source()
         x = sim.pass_channel(s)
         mags = np.abs(x)
@@ -438,7 +528,7 @@ def quick_agc_scan(snrs, *, target=0.7, N_SYM=2000, mode="rms",
 if __name__ == "__main__":
 
     RUN_SINGLE_SIM      = True
-    RUN_ADAPTIVE_SWEEP  = True
+    RUN_ADAPTIVE_SWEEP  = False
     RUN_BER_VS_MU_SWEEP = False
 
     if RUN_SINGLE_SIM:
@@ -446,30 +536,30 @@ if __name__ == "__main__":
         print("=== SIMULACIÓN ÚNICA (DEBUG) ===")
         print("="*30)
         sim = equalizerSimulator(
-            N_SYM=20000, 
-            N_PLOT=10000, 
+            N_SYM=20000,
+            N_PLOT=10000,
             N_SKIP=0,
-            CHAN_MODE="fir", 
+            CHAN_MODE="fir",
             H_TAPS=None,
-            SNR_DB=20, 
+            SNR_DB=20,
             SEED_NOISE=5678,
-            L_EQ=31, 
-            PART_N=16, 
+            L_EQ=31,
+            PART_N=16,
             CENTER_TAP=None,
-            MU=0.006, 
-            MU_SWITCH_ENABLE=True, 
-            MU_FINAL=0.0004, 
+            MU=0.006,
+            MU_SWITCH_ENABLE=True,
+            MU_FINAL=0.0004,
             N_SWITCH=500,
-            USE_STABLE=False, 
-            STABLE_WIN=300, 
-            STABLE_TOL=1.0, 
+            USE_STABLE=False,
+            STABLE_WIN=300,
+            STABLE_TOL=1.0,
             STABLE_PATIENCE=80,
-            seedI=0x17F, 
-            seedQ=0x11D, 
-            NORM_H_POWER=False, 
+            seedI=0x17F,
+            seedQ=0x11D,
+            NORM_H_POWER=False,
             SNR_REF="post"
         ).run()
-        
+
         sim.plot(
             weights=True, weights_smoothing_window=None,
             profile=False, chan_profile=True, freq=True, conv=True,
@@ -478,41 +568,5 @@ if __name__ == "__main__":
         print("CENTER_TAP =", sim.CENTER_TAP, "k0 =", sim.k0)
         res = sim.ber(skip=5000, win=4*sim.PART_N, mN=8)
         print("BER:", res)
-
-    if RUN_ADAPTIVE_SWEEP:
-        SNRS = [0, 2, 4, 6, 8, 10, 12, 14, 16]
-        EQ_PARAMS = dict(
-            CHAN_MODE="fir", 
-            H_TAPS=None, 
-            L_EQ=31, 
-            PART_N=16, 
-            CENTER_TAP=None,
-            MU=0.009, 
-            MU_SWITCH_ENABLE=True, 
-            MU_FINAL=0.0003, 
-            N_SWITCH=500,
-            USE_STABLE=False, 
-            STABLE_WIN=300, 
-            STABLE_TOL=1.0, 
-            STABLE_PATIENCE=80,
-            NORM_H_POWER=False, 
-            SNR_REF="post", 
-            seedI=0x17F, 
-            seedQ=0x11D
-        )
-        results = sweep_snr_until_errors(
-            SNRS, 
-            E_TARGET=100, 
-            N_SYM_MAX=1_000_000, 
-            skip=40000,
-            eq_params=EQ_PARAMS, 
-            safety=1.5
-        )
-        print("\n--- Resultados del Barrido Adaptativo ---")
-        for r in results:
-            print(f"SNR(Es/N0)={r['SNR']:>2} dB | BER={r['BER']:.3e} | Nbits={r['Nbits']:<10} | Errores={r['E_total']}")
-        plot_ber_curve(results, title="QPSK: BER teórica vs simulada (Adaptativo)", x_max=20)
-
-    # (RUN_BER_VS_MU_SWEEP omitido para brevedad; usar tu versión si lo necesitás)
 
     plt.show()

@@ -1,9 +1,9 @@
 import numpy as np
 from tool._fixedInt import DeFixedInt
+FX_NARROW = {"N": 9, "F": 7, "SIGNED": True, "ROUND": "round_even", "SAT": "saturate"}
 
 # Cuantizacion
 
-FX_NARROW = {"N": 9, "F": 7, "SIGNED": True, "ROUND": "round_even", "SAT": "saturate"}
 FX_WIDE   = {"N": 17, "F": 10, "SIGNED": True, "ROUND": "round_even", "SAT": "saturate"}
 
 def _fx_make(val, cfg):
