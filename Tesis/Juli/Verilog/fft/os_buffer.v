@@ -2,21 +2,21 @@ module os_buffer #(
   parameter integer N  = 16, // PART_N
   parameter integer WN = 9   // FX_NARROW S(9,7)
 )(
-  input  wire                  i_clk,        
-  input  wire                  i_rst,        
-  input  wire                  i_valid,      
-  input  wire signed [WN-1:0]  i_xI,         
-  input  wire signed [WN-1:0]  i_xQ,         
+  input  wire                  i_clk,
+  input  wire                  i_rst,
+  input  wire                  i_valid,
+  input  wire signed [WN-1:0]  i_xI,
+  input  wire signed [WN-1:0]  i_xQ,
 
   output wire                  o_in_ready,   // listo para recibir
 
   output reg                   o_fft_start,  // pulso 1 ciclo, antes del 1er sample
   output reg                   o_fft_valid,  // 1 mientras envia 2N samples
-  output reg  signed [WN-1:0]  o_fft_xI,     
-  output reg  signed [WN-1:0]  o_fft_xQ      
+  output reg  signed [WN-1:0]  o_fft_xI,
+  output reg  signed [WN-1:0]  o_fft_xQ
 );
 
-  // log2 
+  // log2
   function integer clog2;
     input integer value;
     integer i;
@@ -27,8 +27,8 @@ module os_buffer #(
     end
   endfunction
 
-  localparam integer CNTW = (N <= 1) ? 1 : clog2(N);  
-  localparam integer IDXW = clog2(2*N);               
+  localparam integer CNTW = (N <= 1) ? 1 : clog2(N);
+  localparam integer IDXW = clog2(2*N);
 
   // buffers: overlap (bloque previo) y new (bloque actual)
   reg signed [WN-1:0] overlapI [0:N-1];
@@ -36,8 +36,8 @@ module os_buffer #(
   reg signed [WN-1:0] newI     [0:N-1];
   reg signed [WN-1:0] newQ     [0:N-1];
 
-  reg [CNTW-1:0] cnt;        // cuenta samples nuevos 
-  reg [IDXW-1:0] send_idx;   // cuenta envio 
+  reg [CNTW-1:0] cnt;        // cuenta samples nuevos
+  reg [IDXW-1:0] send_idx;   // cuenta envio
 
   integer j;
 
@@ -94,20 +94,21 @@ module os_buffer #(
         end
 
         S_SEND: begin
+          // FIX: mantener valid alto durante TODO el envio (2N ciclos).
+          // NO bajar valid en el mismo ciclo del ultimo sample, porque se pierde idx=2N-1.
           o_fft_valid <= 1'b1;
           o_fft_xI    <= blkI;
           o_fft_xQ    <= blkQ;
 
           if (send_idx == (2*N - 1)) begin
-            o_fft_valid <= 1'b0;
-            send_idx    <= {IDXW{1'b0}};
+            send_idx <= {IDXW{1'b0}};
 
             for (j = 0; j < N; j = j + 1) begin
               overlapI[j] <= newI[j];
               overlapQ[j] <= newQ[j];
             end
 
-            state <= S_COLLECT;
+            state <= S_COLLECT; // en COLLECT o_fft_valid se baja
           end else begin
             send_idx <= send_idx + 1'b1;
           end
