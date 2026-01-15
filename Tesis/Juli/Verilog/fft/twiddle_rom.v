@@ -1,28 +1,36 @@
+// Twiddle ROM NFFT=32
+// Q format: signed, NB_W=17, NBF_W=10  (scale = 2^10 = 1024)
+// o_im_fft corresponds to FFT sign: -sin(2*pi*k/32)
+
 module twiddle_rom #(
-  parameter integer NFFT = 32, // puntos FFT
-  parameter integer W    = 16, // ancho
-  parameter integer FRAC = 14  // bits frac 
+    parameter integer NB_W  = 17,
+    parameter integer NBF_W = 10
 )(
-  input  wire [$clog2(NFFT/2)-1:0] i_addr, // addr 0..NFFT/2-1
-  output reg  signed [W-1:0]       o_re,   // twiddle real
-  output reg  signed [W-1:0]       o_im    // twiddle imag
+    input  wire [4:0]             i_k,       // 0..15 used
+    output reg  signed [NB_W-1:0] o_re,
+    output reg  signed [NB_W-1:0] o_im_fft
 );
 
-  localparam integer DEPTH = NFFT/2;
-
-  reg signed [W-1:0] rom_re [0:DEPTH-1]; // tabla cos()
-  reg signed [W-1:0] rom_im [0:DEPTH-1]; // tabla -sin()
-
-  // carga desde .mem (hex)
-  initial begin
-    $readmemh("tw_re.mem", rom_re);
-    $readmemh("tw_im.mem", rom_im);
-  end
-
-  // lectura combinacional
-  always @(*) begin
-    o_re = rom_re[i_addr];
-    o_im = rom_im[i_addr];
-  end
+    always @(*) begin
+        case (i_k)
+            5'd0:  begin o_re =  17'sd1024; o_im_fft =   17'sd0;    end
+            5'd1:  begin o_re =  17'sd1004; o_im_fft =  -17'sd200;  end
+            5'd2:  begin o_re =  17'sd946;  o_im_fft =  -17'sd392;  end
+            5'd3:  begin o_re =  17'sd851;  o_im_fft =  -17'sd569;  end
+            5'd4:  begin o_re =  17'sd724;  o_im_fft =  -17'sd724;  end
+            5'd5:  begin o_re =  17'sd569;  o_im_fft =  -17'sd851;  end
+            5'd6:  begin o_re =  17'sd392;  o_im_fft =  -17'sd946;  end
+            5'd7:  begin o_re =  17'sd200;  o_im_fft =  -17'sd1004; end
+            5'd8:  begin o_re =  17'sd0;    o_im_fft =  -17'sd1024; end
+            5'd9:  begin o_re = -17'sd200;  o_im_fft =  -17'sd1004; end
+            5'd10: begin o_re = -17'sd392;  o_im_fft =  -17'sd946;  end
+            5'd11: begin o_re = -17'sd569;  o_im_fft =  -17'sd851;  end
+            5'd12: begin o_re = -17'sd724;  o_im_fft =  -17'sd724;  end
+            5'd13: begin o_re = -17'sd851;  o_im_fft =  -17'sd569;  end
+            5'd14: begin o_re = -17'sd946;  o_im_fft =  -17'sd392;  end
+            5'd15: begin o_re = -17'sd1004; o_im_fft =  -17'sd200;  end
+            default: begin o_re = 17'sd0; o_im_fft = 17'sd0; end
+        endcase
+    end
 
 endmodule
