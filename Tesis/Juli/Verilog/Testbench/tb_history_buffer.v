@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_filter;
+module tb_history_buffer;
 
     // Señales del Testbench
     reg clk = 0;
@@ -9,11 +9,9 @@ module tb_filter;
     reg signed [15:0] i_X_re, i_X_im;
     
     // COEFICIENTES DE PRUEBA (Formato Q2.14)
-    // 16384 decimal = 1.0 en binario (bit 14 en 1)
     reg signed [15:0] i_W0_re = 16'd16384; // W0 = 1.0
     reg signed [15:0] i_W0_im = 0;
     
-    // CORRECCIÓN: Usamos 16384 (1.0) también para W1 para evitar overflow de 16 bits
     reg signed [15:0] i_W1_re = 16'd16384; // W1 = 1.0
     reg signed [15:0] i_W1_im = 0;
 
@@ -22,8 +20,8 @@ module tb_filter;
     wire signed [15:0] o_Y_re, o_Y_im;
     wire [4:0] o_k;
 
-    // Instancia del Módulo a Probar (Unit Under Test)
-    frequency_filter_stage #(
+    // Instancia del Módulo a Probar 
+    history_buffer #(
         .W(16), 
         .FRAC(14)
     ) uut (

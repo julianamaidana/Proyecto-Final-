@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module frequency_filter_stage #(
+module history_buffer #(
     parameter integer W = 16    // Ancho del dato
 )(
     input  wire clk,
@@ -76,8 +76,7 @@ module frequency_filter_stage #(
             
         end else begin
             o_valid_data <= 0;
-            // Opcional: Poner salidas a 0 si querés limpiar ruido, 
-            // pero con bajar o_valid_data alcanza.
+         
         end
     end
 
