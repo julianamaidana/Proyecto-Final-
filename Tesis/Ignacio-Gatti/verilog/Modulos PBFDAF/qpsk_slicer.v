@@ -1,65 +1,64 @@
+`timescale 1ns/1ps
+
 module qpsk_slicer #(
-  parameter int W    = 16,   // ancho de y_re/y_im
-  parameter int FRAC = 15,   // bits fraccionales del formato fijo
-  // amplitud del símbolo decidido en tu Q-format: +1.0 = 1<<FRAC
-  parameter logic signed [W-1:0] AMP = (1'sb1 <<< FRAC),
-  // umbral (normalmente 0)
-  parameter logic signed [W-1:0] TH  = '0
+  parameter integer W    = 16,
+  parameter integer FRAC = 14,               // <-- ojo: si querés 16384, FRAC debe ser 14 si es 15 queda en 32768
+  parameter signed [W-1:0] TH = 0
 )(
-  input  logic                 clk,
-  input  logic                 rst,
+  input  wire                i_clk,
+  input  wire                i_rst,
 
-  input  logic                 i_valid,
-  input  logic                 i_first,
-  input  logic                 i_last,
-  input  logic signed [W-1:0]  i_y_re,
-  input  logic signed [W-1:0]  i_y_im,
+  input  wire                i_valid,
+  input  wire                i_first,
+  input  wire                i_last,
+  input  wire signed [W-1:0] i_y_re,
+  input  wire signed [W-1:0] i_y_im,
 
-  output logic                 o_valid,
-  output logic                 o_first,
-  output logic                 o_last,
-
-  // bits decididos (1 si negativo, 0 si positivo)
-  output logic                 o_bI_hat,
-  output logic                 o_bQ_hat,
-
-  // símbolo decidido reconstruido (±AMP)
-  output logic signed [W-1:0]  o_yhat_re,
-  output logic signed [W-1:0]  o_yhat_im
+  output reg                 o_valid,
+  output reg                 o_first,
+  output reg                 o_last,
+  output reg                 o_bI_hat,
+  output reg                 o_bQ_hat,
+  output reg signed [W-1:0]  o_yhat_re,
+  output reg signed [W-1:0]  o_yhat_im
 );
 
-  logic negI, negQ;
+  // +1.0 en Q(FRAC)
+  localparam signed [W-1:0] AMP = (1 <<< FRAC);
 
-  always_ff @(posedge clk) begin
-    if (rst) begin
+  always @(posedge i_clk) begin
+    if (i_rst) begin
       o_valid   <= 1'b0;
       o_first   <= 1'b0;
       o_last    <= 1'b0;
       o_bI_hat  <= 1'b0;
       o_bQ_hat  <= 1'b0;
-      o_yhat_re <= '0;
-      o_yhat_im <= '0;
+      o_yhat_re <= {W{1'b0}};
+      o_yhat_im <= {W{1'b0}};
     end else begin
-      // por defecto
-      o_valid <= 1'b0;
-      o_first <= 1'b0;
-      o_last  <= 1'b0;
-
       if (i_valid) begin
-        // decisión por signo respecto a TH
-        negI = (i_y_re < TH);
-        negQ = (i_y_im < TH);
-
-        o_bI_hat <= negI;
-        o_bQ_hat <= negQ;
-
-        // reconstrucción del símbolo: si es negativo -> -AMP, si no -> +AMP
-        o_yhat_re <= negI ? -AMP : AMP;
-        o_yhat_im <= negQ ? -AMP : AMP;
-
+        // señales de control
         o_valid <= 1'b1;
         o_first <= i_first;
         o_last  <= i_last;
+
+        // bits: 1 si negativo
+        o_bI_hat <= (i_y_re < TH);
+        o_bQ_hat <= (i_y_im < TH);
+
+        // símbolo decidido: ±AMP
+        o_yhat_re <= ( (i_y_re < TH) ? -AMP : AMP );
+        o_yhat_im <= ( (i_y_im < TH) ? -AMP : AMP );
+
+      end else begin
+        // limpieza cuando no hay dato válido
+        o_valid   <= 1'b0;
+        o_first   <= 1'b0;
+        o_last    <= 1'b0;
+        o_bI_hat  <= 1'b0;
+        o_bQ_hat  <= 1'b0;
+        o_yhat_re <= {W{1'b0}};
+        o_yhat_im <= {W{1'b0}};
       end
     end
   end
