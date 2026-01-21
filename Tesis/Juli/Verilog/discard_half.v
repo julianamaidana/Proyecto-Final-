@@ -16,7 +16,7 @@ module discard_half #(
   output reg signed [W-1:0]   o_y_im,
   output reg                  o_first,  // 1 ciclo en la primera muestra buena
   output reg                  o_last,   // 1 ciclo en la última muestra buena
-  output reg [$clog2(NFFT)-1:0] o_idx   // 0..(NFFT-DISCARD-1), útil para debug
+  output reg [$clog2(NFFT)-1:0] o_idx  
 );
 
   localparam integer IDXW = $clog2(NFFT);
