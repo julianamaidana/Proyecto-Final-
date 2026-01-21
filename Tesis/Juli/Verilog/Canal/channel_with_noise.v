@@ -21,7 +21,7 @@ module channel_with_noise #(
     // DEFINICIÓN DEL CANAL
     // ================================================================
   
-    parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
+    /*parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
         -9'sd1,   9'sd2,  -9'sd3,   9'sd6,  -9'sd11,  9'sd27,   9'sd113,
        -9'sd30,   9'sd10, -9'sd5,   9'sd3,  -9'sd2,   9'sd1
     },
@@ -29,6 +29,18 @@ module channel_with_noise #(
     parameter [L_CH*CWIDTH-1:0] H_IMAG_INIT = {
         9'sd0,   9'sd0,   9'sd1,  -9'sd1,   9'sd2,  -9'sd4,   9'sd9,
         9'sd39, -9'sd6,   9'sd3,  -9'sd2,   9'sd1,   9'sd0
+    }*/
+    parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
+        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 
+        9'sd127,  // impulso (Ganancia 1)
+        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0
+    },
+
+    parameter [L_CH*CWIDTH-1:0] H_IMAG_INIT = {
+        // Parte imaginaria toda en CERO
+        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 
+        9'sd0, 
+        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0
     }
 )(
     input  wire                        clk,
