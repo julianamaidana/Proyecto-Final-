@@ -17,7 +17,7 @@ module top_validation #(
 
     // Salidas para ver en el Waveform
     output wire                        fft_valid_out,
-    output wire signed [8:0]           fft_out_I,   // Tu FFT saca 9 bits (NB_OUT)
+    output wire signed [8:0]           fft_out_I,   
     output wire signed [8:0]           fft_out_Q
 );
 
