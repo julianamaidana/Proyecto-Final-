@@ -138,4 +138,34 @@ module top_validation #(
         // Salidas de pesos (No las miramos por ahora)
         .o_W0_re(), .o_W0_im(), .o_W1_re(), .o_W1_im()
     );
+
+    
+   // --- ZONA DE PRUEBA DEL MULTIPLICADOR ---
+
+    // 1. Definimos los pesos fijos (1.0 real, 0.0 imag)
+    wire signed [8:0] w_dummy_real = 9'sd128; 
+    wire signed [8:0] w_dummy_imag = 9'sd0;
+    
+    // Cables para ver la salida (asegúrate de tenerlos declarados arriba si no lo están)
+    wire signed [8:0] mult_out_I, mult_out_Q;
+
+    // 2. Instanciamos tu módulo REAL (complex_mult)
+    complex_mult #(
+        .NB_W(9),    // Forzamos a que use 9 bits (Tu ancho total)
+        .NBF_W(7)    // Forzamos a que use 7 bits fraccionales
+    ) u_multiplier (
+        // NO CONECTAMOS CLK NI RST (Porque es combinacional)
+
+        // Entradas de Datos A (Vienen del Buffer de Historia)
+        .i_aI(hb_curr_I), 
+        .i_aQ(hb_curr_Q),
+        
+        // Entradas de Datos B (Usamos los Pesos Fijos de prueba)
+        .i_bI(w_dummy_real), 
+        .i_bQ(w_dummy_imag),
+        
+        // Salidas (Resultado)
+        .o_yI(mult_out_I),
+        .o_yQ(mult_out_Q)
+    );
 endmodule
