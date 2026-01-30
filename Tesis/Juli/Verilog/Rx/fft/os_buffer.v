@@ -7,16 +7,18 @@ module os_buffer #(
   input  wire                  i_valid,
   input  wire signed [WN-1:0]  i_xI,
   input  wire signed [WN-1:0]  i_xQ,
-
+  
+  // 1. AGREGASTE ESTA ENTRADA (Perfecto)
+  input  wire                  i_fft_ready, 
+  
   output wire                  o_in_ready,   // listo para recibir
-
-  output reg                   o_fft_start,  // pulso 1 ciclo, antes del 1er sample
+  output reg                   o_fft_start,  // pulso 1 ciclo
   output reg                   o_fft_valid,  // 1 mientras envia 2N samples
   output reg  signed [WN-1:0]  o_fft_xI,
   output reg  signed [WN-1:0]  o_fft_xQ
 );
 
-  // log2
+  // ... (Funciones y Parámetros igual que antes) ...
   function integer clog2;
     input integer value;
     integer i;
@@ -30,18 +32,16 @@ module os_buffer #(
   localparam integer CNTW = (N <= 1) ? 1 : clog2(N);
   localparam integer IDXW = clog2(2*N);
 
-  // buffers: overlap (bloque previo) y new (bloque actual)
+  // ... (Memorias y registros igual que antes) ...
   reg signed [WN-1:0] overlapI [0:N-1];
   reg signed [WN-1:0] overlapQ [0:N-1];
   reg signed [WN-1:0] newI     [0:N-1];
   reg signed [WN-1:0] newQ     [0:N-1];
 
-  reg [CNTW-1:0] cnt;        // cuenta samples nuevos
-  reg [IDXW-1:0] send_idx;   // cuenta envio
-
+  reg [CNTW-1:0] cnt;
+  reg [IDXW-1:0] send_idx;
   integer j;
 
-  // FSM: junta N, dsp envia 2N = [overlap | new]
   localparam [1:0] S_COLLECT = 2'd0;
   localparam [1:0] S_SEND    = 2'd1;
 
@@ -49,7 +49,6 @@ module os_buffer #(
 
   assign o_in_ready = (state == S_COLLECT);
 
-  // mux de bloque durante SEND
   wire signed [WN-1:0] blkI = (send_idx < N) ? overlapI[send_idx] : newI[send_idx - N];
   wire signed [WN-1:0] blkQ = (send_idx < N) ? overlapQ[send_idx] : newQ[send_idx - N];
 
@@ -85,7 +84,7 @@ module os_buffer #(
             if (cnt == N-1) begin
               cnt         <= {CNTW{1'b0}};
               send_idx    <= {IDXW{1'b0}};
-              o_fft_start <= 1'b1;      // pulso antes del 1er valid
+              o_fft_start <= 1'b1;      
               state       <= S_SEND;
             end else begin
               cnt <= cnt + 1'b1;
@@ -93,24 +92,41 @@ module os_buffer #(
           end
         end
 
+        // ---------------------------------------------------------
+        // 2. AQUÍ ESTÁ LA MODIFICACIÓN CLAVE (Lógica de Backpressure)
+        // ---------------------------------------------------------
         S_SEND: begin
-          // FIX: mantener valid alto durante TODO el envio (2N ciclos).
-          // NO bajar valid en el mismo ciclo del ultimo sample, porque se pierde idx=2N-1.
-          o_fft_valid <= 1'b1;
-          o_fft_xI    <= blkI;
-          o_fft_xQ    <= blkQ;
+          
+          // PREGUNTA: ¿La FFT está lista para recibir?
+          if (i_fft_ready) begin  // <--- CAMBIO: Solo entramos si ready=1
+          
+             o_fft_valid <= 1'b1;
+             o_fft_xI    <= blkI;
+             o_fft_xQ    <= blkQ;
 
-          if (send_idx == (2*N - 1)) begin
-            send_idx <= {IDXW{1'b0}};
+             // Solo incrementamos el índice si logramos enviar el dato
+             if (send_idx == (2*N - 1)) begin
+               send_idx <= {IDXW{1'b0}};
+               
+               // Actualizar Overlap
+               for (j = 0; j < N; j = j + 1) begin
+                 overlapI[j] <= newI[j];
+                 overlapQ[j] <= newQ[j];
+               end
 
-            for (j = 0; j < N; j = j + 1) begin
-              overlapI[j] <= newI[j];
-              overlapQ[j] <= newQ[j];
-            end
-
-            state <= S_COLLECT; // en COLLECT o_fft_valid se baja
+               state <= S_COLLECT;
+             end else begin
+               send_idx <= send_idx + 1'b1;
+             end
+             
           end else begin
-            send_idx <= send_idx + 1'b1;
+             // SI LA FFT NO ESTÁ LISTA (Busy):
+             // 1. Bajamos el valid para no "engañar" a la FFT
+             o_fft_valid <= 1'b0; 
+             
+             // 2. IMPORTANTE: NO incrementamos send_idx.
+             //    Nos quedamos congelados en este estado manteniendo los datos
+             //    en blkI/blkQ hasta que la FFT se libere.
           end
         end
 

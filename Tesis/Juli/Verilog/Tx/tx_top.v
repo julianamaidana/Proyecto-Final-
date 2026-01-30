@@ -1,8 +1,9 @@
 module tx_top (
     input  wire clk,
     input  wire reset,
-    output wire signed [15:0] sI_out, 
-    output wire signed [15:0] sQ_out
+    input wire in_en,
+    output wire signed [8:0] sI_out, 
+    output wire signed [8:0] sQ_out
 );
 
     // Señales internas
@@ -13,8 +14,8 @@ module tx_top (
     prbs9 prbs_i (
         .clk (clk),
         .rst (reset),
-        .en  (1'b1),      // <--- IMPORTANTE: Habilitar el PRBS
-        .seed(9'h17F),    // <--- Conectado al puerto 'seed'
+        .en  (in_en),      
+        .seed(9'h17F),   
         .bit (bI)
     );
 
@@ -22,7 +23,7 @@ module tx_top (
     prbs9 prbs_q (
         .clk (clk),
         .rst (reset),
-        .en  (1'b1),      // <--- IMPORTANTE
+        .en  (in_en),     
         .seed(9'h11D),
         .bit (bQ)
     );

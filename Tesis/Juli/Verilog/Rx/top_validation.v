@@ -1,171 +1,203 @@
-`timescale 1ns / 1ps
+`timescale 1ns/1ps
 
 module top_validation #(
-    parameter DWIDTH      = 9,
-    parameter SNR_WIDTH   = 11,
-    parameter N_PART      = 16, // Tamaño de partición (N)
-    parameter NFFT        = 32  // Tamaño FFT (2*N)
+    parameter DWIDTH    = 9,
+    parameter SNR_WIDTH = 11,
+    parameter N_PART    = 16,
+    parameter NFFT      = 32
 )(
-    input  wire                        clk,
-    input  wire                        rst,
-    
-    // Control de Ruido y Mux
-    input  wire signed [SNR_WIDTH-1:0] sigma_scale, 
-    input  wire                        bypass_tx,   // 1=Usar datos prueba, 0=Usar Tx Real
-    input  wire signed [DWIDTH-1:0]    test_data_I, // Dato manual (para probar bines)
-    input  wire signed [DWIDTH-1:0]    test_data_Q,
+    input  wire        clk,
+    input  wire        rst,
+    input  wire signed [SNR_WIDTH-1:0] sigma_scale,
+    input  wire        tb_tx_en,
+    input  wire        i_valid_from_tb,    // Puerto para manejar latencia desde TB
 
-    // Salidas para ver en el Waveform
-    output wire                        fft_valid_out,
-    output wire signed [8:0]           fft_out_I,   
-    output wire signed [8:0]           fft_out_Q
+    // Puertos de monitoreo (Los que daban error en la imagen)
+    output wire        o_check_valid,
+    output wire [8:0]  o_check_I,
+    output wire [8:0]  o_check_Q,
+
+    // Salidas finales
+    output wire        o_clean_valid,
+    output wire [8:0]  o_clean_I,
+    output wire [8:0]  o_clean_Q,
+    output wire        buf_ready_out
 );
+    // ====================================================
+    // CABLES INTERNOS
+    // ====================================================
+    // Etapa 1: Sistema (TX + Canal)
+    wire [DWIDTH-1:0] sys_I, sys_Q;
+    wire              sys_valid;
 
-    // -----------------------------------------------------------
-    // 1. CABLES INTERNOS
-    // -----------------------------------------------------------
-    // Salidas del Top original
-    wire signed [DWIDTH-1:0] tx_rx_I, tx_rx_Q;
+    // Etapa 2: Buffer de Overlap
+    wire [DWIDTH-1:0] os_out_I, os_out_Q;
+    wire              os_valid;
+    wire              fft_ready;
 
-    // Entradas al Buffer (Salida del MUX)
-    wire signed [DWIDTH-1:0] buf_in_I, buf_in_Q;
-    wire                     buf_in_valid;
+    // Etapa 3: FFT
+    wire [8:0]        fft_out_I, fft_out_Q;
+    wire              fft_out_valid;
 
-    // Salidas del Buffer -> Entradas FFT
-    wire signed [DWIDTH-1:0] os_out_I, os_out_Q;
-    wire                     os_valid_w;
-    wire                     os_start_w;
+    // Etapa 4: Receptor (History + Mult)
+    wire              hb_valid;
+    wire [8:0]        hb_curr_I, hb_curr_Q;
+    wire [8:0]        hb_old_I,  hb_old_Q;
+    wire [8:0]        prod0_I, prod0_Q, prod1_I, prod1_Q;
+    wire [8:0]        mult_out_I, mult_out_Q;
 
-    // -----------------------------------------------------------
-    // 2. INSTANCIA DE TU SISTEMA (TX + CANAL)
-    // -----------------------------------------------------------
+    // Etapa 5: IFFT + Discard
+    wire              ifft_v, ifft_s;
+    wire [8:0]        ifft_yI, ifft_yQ;
+    wire              ifft_last;
+    reg  [4:0]        cnt_ifft;
+
+    // ====================================================
+    // 1. SISTEMA (TX + CANAL)
+    // ====================================================
     top #(
-        .DWIDTH(DWIDTH), 
+        .DWIDTH(DWIDTH),
         .SNR_WIDTH(SNR_WIDTH)
-    ) u_system_original (
-        .clk        (clk),
-        .rst        (rst),
-        .sigma_scale(sigma_scale), // Control de ruido
-        .rx_I       (tx_rx_I),     // Conectamos la salida
-        .rx_Q       (tx_rx_Q)
+    ) u_system (
+        .i_clk         (clk),
+        .i_rst         (rst),
+        .i_sigma_scale (sigma_scale),
+        .i_tx_en       (tb_tx_en & buf_ready_out),    // Controlado por el TB
+        .o_rx_I        (sys_I),
+        .o_rx_Q        (sys_Q),
+        .o_rx_valid    (sys_valid)    //
     );
 
-    // -----------------------------------------------------------
-    // 3. MULTIPLEXOR DE PRUEBA (BYPASS)
-    // -----------------------------------------------------------
-    // Si bypass_tx=1, entra el dato manual (ej. constante 100).
-    // Si bypass_tx=0, entra lo que sale de u_system_original.
-    assign buf_in_I = (bypass_tx) ? test_data_I : tx_rx_I;
-    assign buf_in_Q = (bypass_tx) ? test_data_Q : tx_rx_Q;
-    assign buf_in_valid = 1'b1; // Asumimos flujo continuo
-
-    // -----------------------------------------------------------
-    // 4. INSTANCIA DEL BUFFER OVERLAP-SAVE
-    // -----------------------------------------------------------
+    // ====================================================
+    // 2. BUFFER DE OVERLAP-SAVE
+    // ====================================================
     os_buffer #(
-        .N (N_PART), 
+        .N (N_PART),
         .WN(DWIDTH)
-    ) u_buffer (
-        .i_clk      (clk),
-        .i_rst      (rst),
-        .i_valid    (buf_in_valid),
-        .i_xI       (buf_in_I),
-        .i_xQ       (buf_in_Q),
-        
-        .o_in_ready (),           // No la usamos en flujo continuo
-        .o_fft_start(os_start_w), // Pulso de inicio
-        .o_fft_valid(os_valid_w), // Ventana de validez (2N ciclos)
-        .o_fft_xI   (os_out_I),   // Datos ordenados para FFT
-        .o_fft_xQ   (os_out_Q)
+    ) u_os (
+        .i_clk       (clk),
+        .i_rst       (rst),
+        .i_valid     (i_valid_from_tb),
+        .i_xI        (sys_I),
+        .i_xQ        (sys_Q),
+        .i_fft_ready (fft_ready),
+
+        .o_in_ready  (buf_ready_out), // Hacia el exterior
+        .o_fft_valid (os_valid),
+        .o_fft_xI    (os_out_I),
+        .o_fft_xQ    (os_out_Q)
     );
 
-    // -----------------------------------------------------------
-    // 5. INSTANCIA DE TU FFT
-    // -----------------------------------------------------------
+    // ====================================================
+    // 3. FFT PRINCIPAL
+    // ====================================================
     fft_ifft #(
-        .NFFT       (NFFT),
-        .NB_IN      (DWIDTH),
-        .NB_OUT     (9),
-        .SCALE_STAGE(0) // Sin escalar para ver picos grandes
+        .NFFT(NFFT), .NB_IN(DWIDTH), .NB_OUT(9), .NB_W(24)
     ) u_fft (
-        .i_clk      (clk),
-        .i_rst      (rst),
-        
-        // Conexión con el Buffer
-        .i_valid    (os_valid_w), 
-        .i_xI       (os_out_I),
-        .i_xQ       (os_out_Q),
-        .i_inverse  (1'b0),       // 0 = FFT Directa (Forward)
-
-        // Salidas
-        .o_in_ready (),           
-        .o_start    (),           
-        .o_valid    (fft_valid_out),
-        .o_yI       (fft_out_I),
-        .o_yQ       (fft_out_Q)
+        .i_clk(clk), .i_rst(rst),
+        .i_valid(os_valid),
+        .i_xI(os_out_I), .i_xQ(os_out_Q),
+        .o_in_ready(fft_ready), 
+        .o_valid(fft_out_valid),
+        .o_yI(fft_out_I), .o_yQ(fft_out_Q)
     );
 
-    // ... (Después de la instancia u_fft) ...
 
-    // CABLES PARA EL BUFFER DE HISTORIA
-    wire hb_valid_out;
-    wire signed [8:0] hb_curr_I, hb_curr_Q;
-    wire signed [8:0] hb_old_I, hb_old_Q;
-    wire [4:0] hb_k_idx; // Índice k (0 a 31)
-
-    // INSTANCIA DEL HISTORY BUFFER
-    history_buffer #(
-        .W(9) // Ancho de 9 bits
-    ) u_history_buf (
+    // ====================================================
+    // 4. IFFT DE PRUEBA (SOLO PARA VALIDAR FFT)
+    // ====================================================
+    fft_ifft #(
+        .NFFT(NFFT), .NB_IN(9), .NB_OUT(9), .NB_W(24), .SCALE_STAGE(0)
+    ) u_ifft_check (
+        .i_clk(clk), 
+        .i_rst(rst),
+        .i_inverse(1'b1),        // Modo Inverso
+        .i_valid(fft_out_valid), 
+        .i_xI(fft_out_I), 
+        .i_xQ(fft_out_Q),
+        .o_yI(o_check_I),
+        .o_yQ(o_check_Q),
+        .o_valid(o_check_valid),
+        .o_in_ready(), .o_start()
+    );
+    // ====================================================
+    // 4. HISTORY BUFFER (FDE)
+    // ====================================================
+    history_buffer #(.W(9)) u_hist (
         .clk(clk),
         .rst(rst),
-        .i_valid(fft_valid_out), // Conectamos el VALID de la FFT
-        
-        // Entradas de Datos (Desde la FFT)
+        .i_valid(fft_out_valid),
         .i_X_re(fft_out_I),
         .i_X_im(fft_out_Q),
-        
-        // Entradas de Pesos (Por ahora pon ceros o conecta cables dummy)
         .i_W0_re(9'sd0), .i_W0_im(9'sd0),
         .i_W1_re(9'sd0), .i_W1_im(9'sd0),
-
-        // Salidas
-        .o_valid_data(hb_valid_out), // Nuevo Valid retrasado
-        .o_X_curr_re(hb_curr_I), .o_X_curr_im(hb_curr_Q), // Dato Actual
-        .o_X_old_re (hb_old_I),  .o_X_old_im (hb_old_Q),  // Dato Viejo
-        
-        .o_k_idx(hb_k_idx),
-        // Salidas de pesos (No las miramos por ahora)
-        .o_W0_re(), .o_W0_im(), .o_W1_re(), .o_W1_im()
+        .o_valid_data(hb_valid),
+        .o_X_curr_re(hb_curr_I), .o_X_curr_im(hb_curr_Q),
+        .o_X_old_re (hb_old_I),  .o_X_old_im (hb_old_Q),
+        .o_k_idx(), .o_W0_re(), .o_W0_im(), .o_W1_re(), .o_W1_im()
     );
 
-    
-   // --- ZONA DE PRUEBA DEL MULTIPLICADOR ---
-
-    // 1. Definimos los pesos fijos (1.0 real, 0.0 imag)
-    wire signed [8:0] w_dummy_real = 9'sd128; 
-    wire signed [8:0] w_dummy_imag = 9'sd0;
-    
-    // Cables para ver la salida (asegúrate de tenerlos declarados arriba si no lo están)
-    wire signed [8:0] mult_out_I, mult_out_Q;
-
-    // 2. Instanciamos tu módulo REAL (complex_mult)
-    complex_mult #(
-        .NB_W(9),    // Forzamos a que use 9 bits (Tu ancho total)
-        .NBF_W(7)    // Forzamos a que use 7 bits fraccionales
-    ) u_multiplier (
-        // NO CONECTAMOS CLK NI RST (Porque es combinacional)
-
-        // Entradas de Datos A (Vienen del Buffer de Historia)
-        .i_aI(hb_curr_I), 
-        .i_aQ(hb_curr_Q),
-        
-        // Entradas de Datos B (Usamos los Pesos Fijos de prueba)
-        .i_bI(w_dummy_real), 
-        .i_bQ(w_dummy_imag),
-        
-        // Salidas (Resultado)
-        .o_yI(mult_out_I),
-        .o_yQ(mult_out_Q)
+    // ====================================================
+    // 5. ECUALIZACIÓN (PRODUCTOS COMPLEJOS)
+    // ====================================================
+    complex_mult #( .NB_W(9), .NBF_W(7) ) u_mult0 (
+        .i_aI(hb_curr_I), .i_aQ(hb_curr_Q),
+        .i_bI(9'sd128),   .i_bQ(9'sd0),     // Coeficiente 1.0 en Q1.7
+        .o_yI(prod0_I),   .o_yQ(prod0_Q)
     );
+
+    complex_mult #( .NB_W(9), .NBF_W(7) ) u_mult1 (
+        .i_aI(hb_old_I), .i_aQ(hb_old_Q),
+        .i_bI(9'sd0),    .i_bQ(9'sd0),      // Rama de historia anulada
+        .o_yI(prod1_I),  .o_yQ(prod1_Q)
+    );
+
+    assign mult_out_I = prod0_I + prod1_I;
+    assign mult_out_Q = prod0_Q + prod1_Q;
+
+    // ====================================================
+    // 6. IFFT (RETORNO AL TIEMPO)
+    // ====================================================
+    fft_ifft #(
+        .NFFT(NFFT), .NB_IN(9), .NB_OUT(9), .NB_W(24), .SCALE_STAGE(0)
+    ) u_ifft (
+        .i_clk(clk), 
+        .i_rst(rst),
+        .i_inverse(1'b1), 
+        .i_valid(hb_valid),
+        .i_xI(mult_out_I), 
+        .i_xQ(mult_out_Q),
+        .o_in_ready(), 
+        .o_start(ifft_s),
+        .o_valid(ifft_v),
+        .o_yI(ifft_yI), 
+        .o_yQ(ifft_yQ)
+    );
+
+    // ====================================================
+    // 7. GENERACIÓN DE SEÑAL LAST Y DISCARD HALF
+    // ====================================================
+    always @(posedge clk) begin
+        if (rst)          cnt_ifft <= 0;
+        else if (ifft_s)  cnt_ifft <= 0;
+        else if (ifft_v)  cnt_ifft <= cnt_ifft + 1;
+    end
+    
+    assign ifft_last = (cnt_ifft == 5'd31) && ifft_v;
+
+    discard_half #(
+        .NFFT(32), .W(9), .DISCARD(16)
+    ) u_discard (
+        .i_clk(clk), .i_rst(rst),
+        .i_valid(ifft_v),
+        .i_y_re(ifft_yI <<< 5),  // Ganancia compensatoria
+        .i_y_im(ifft_yQ <<< 5),
+        .i_last(ifft_last),
+        
+        .o_valid(o_clean_valid),
+        .o_y_re (o_clean_I),
+        .o_y_im (o_clean_Q),
+        .o_last (), .o_first(), .o_idx()
+    );
+
 endmodule
