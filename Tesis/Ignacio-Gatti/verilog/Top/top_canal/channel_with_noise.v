@@ -21,30 +21,18 @@ module channel_with_noise #(
     // DEFINICIÓN DEL CANAL
     // ================================================================
   
-    /*parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
-        -9'sd1,   9'sd2,  -9'sd3,   9'sd6,  -9'sd11,  9'sd27,   9'sd113,
-       -9'sd30,   9'sd10, -9'sd5,   9'sd3,  -9'sd2,   9'sd1
-    },
-
-    parameter [L_CH*CWIDTH-1:0] H_IMAG_INIT = {
-        9'sd0,   9'sd0,   9'sd1,  -9'sd1,   9'sd2,  -9'sd4,   9'sd9,
-        9'sd39, -9'sd6,   9'sd3,  -9'sd2,   9'sd1,   9'sd0
-    }*/
     parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
-        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 
-        9'sd127,  // impulso (Ganancia 1)
-        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0
+    9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd1,
+    9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0
     },
 
-    parameter [L_CH*CWIDTH-1:0] H_IMAG_INIT = {
-        // Parte imaginaria toda en CERO
-        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 
-        9'sd0, 
-        9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0
-    }
+
+    parameter [L_CH*CWIDTH-1:0] H_IMAG_INIT = {L_CH{9'sd0}}
+
 )(
     input  wire                        clk,
     input  wire                        rst,
+    input  wire                        i_enable,
     input  wire signed [DWIDTH-1:0]    In_I,
     input  wire signed [DWIDTH-1:0]    In_Q,
     input  wire signed [SNR_WIDTH-1:0] sigma_scale,
@@ -64,7 +52,7 @@ module channel_with_noise #(
         .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
         .COEFFS_VECTOR(H_REAL_INIT)
     ) u_fir_ii (
-        .clk(clk), .rst(rst), .din(In_I), .dout(y_ii)
+        .clk(clk), .rst(rst), .i_enable(i_enable), .din(In_I), .dout(y_ii)
     );
 
     // Q -> Q : Q*hR
@@ -74,7 +62,7 @@ module channel_with_noise #(
         .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
         .COEFFS_VECTOR(H_REAL_INIT)
     ) u_fir_qq (
-        .clk(clk), .rst(rst), .din(In_Q), .dout(y_qq)
+        .clk(clk), .rst(rst), .i_enable(i_enable), .din(In_Q), .dout(y_qq)
     );
 
     // I -> Q : I*hI
@@ -84,7 +72,7 @@ module channel_with_noise #(
         .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
         .COEFFS_VECTOR(H_IMAG_INIT)
     ) u_fir_iq (
-        .clk(clk), .rst(rst), .din(In_I), .dout(y_iq)
+        .clk(clk), .rst(rst), .i_enable(i_enable), .din(In_I), .dout(y_iq)
     );
 
     // Q -> I : Q*hI
@@ -94,7 +82,7 @@ module channel_with_noise #(
         .SATURATE_EN(1'b1), .ROUND_EN(1'b0),
         .COEFFS_VECTOR(H_IMAG_INIT)
     ) u_fir_qi (
-        .clk(clk), .rst(rst), .din(In_Q), .dout(y_qi)
+        .clk(clk), .rst(rst), .i_enable(i_enable), .din(In_Q), .dout(y_qi)
     );
 
     // ================================================================
@@ -109,7 +97,7 @@ module channel_with_noise #(
         if (rst) begin
             channel_out_I <= {DWIDTH{1'b0}};
             channel_out_Q <= {DWIDTH{1'b0}};
-        end else begin
+        end else if (i_enable) begin
             channel_out_I <= y_ii - y_qi;  // I*hR - Q*hI
             channel_out_Q <= y_iq + y_qq;  // I*hI + Q*hR
         end
@@ -130,7 +118,7 @@ module channel_with_noise #(
     ) u_noise_gen_I (
         .clk        (clk),
         .rstn      (!rst),      // Ojo: Tu rst es activo alto, el IP pide activo bajo
-        .ce         (1'b1),      // Siempre habilitado
+        .ce         (i_enable),      // Siempre habilitado
         .valid_out  (),          // No lo necesitamos si asumimos flujo continuo
         .data_out   (raw_noise_I)
     );
@@ -143,7 +131,7 @@ module channel_with_noise #(
     ) u_noise_gen_Q (
         .clk        (clk),
         .rstn      (!rst),
-        .ce         (1'b1),
+        .ce         (i_enable),
         .valid_out  (),
         .data_out   (raw_noise_Q)
     );
