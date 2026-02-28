@@ -26,7 +26,7 @@ module top_global_all #(
     // Ganancia antes de OS (recupera dinámica si CH sale 0/-1)
     // probá: 4..7
     // ============================================================
-    parameter integer CH_GAIN_SH = 5
+    parameter integer CH_GAIN_SH = 0
 )(
     input  wire                 clk_fast,
     input  wire                 rst,
