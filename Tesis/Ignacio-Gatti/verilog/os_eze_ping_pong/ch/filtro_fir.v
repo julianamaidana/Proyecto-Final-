@@ -33,7 +33,6 @@ module filtro_fir #(
 )(
     input  wire                 clk,
     input  wire                 rst,
-    input wire                  i_enable,     
     input  wire signed [W-1:0]  din,
     output reg  signed [W-1:0]  dout
 );
@@ -81,7 +80,7 @@ module filtro_fir #(
         if (rst) begin
             for (i = 0; i < H; i = i + 1)
                 shift_reg[i] <= {W{1'b0}};
-        end else if (i_enable) begin
+        end else begin
             shift_reg[0] <= din;
             for (i = 1; i < H; i = i + 1)
                 shift_reg[i] <= shift_reg[i-1];
@@ -98,7 +97,7 @@ module filtro_fir #(
         if (rst) begin
             for (i = 0; i < H; i = i + 1)
                 mult_res[i] <= {(W+CW){1'b0}};
-        end else if (i_enable) begin
+        end else begin
             for (i = 0; i < H; i = i + 1)
                 mult_res[i] <= shift_reg[i] * taps_coeffs[i];
         end
@@ -166,7 +165,7 @@ module filtro_fir #(
     always @(posedge clk) begin
         if (rst) begin
             dout <= {W{1'b0}};
-        end else if (i_enable) begin
+        end else begin
             if (SATURATE_EN)
                 dout <= sat_to_W(sum_scaled);
             else
