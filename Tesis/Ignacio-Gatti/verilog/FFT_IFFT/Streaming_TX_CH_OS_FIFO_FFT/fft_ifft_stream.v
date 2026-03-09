@@ -2,29 +2,29 @@
 `default_nettype none
 
 module fft_ifft_stream #(
-    parameter integer NFFT        = 32,
-    parameter integer LOGN        = 5,
+    parameter integer NFFT           = 32,
+    parameter integer LOGN           = 5,
 
-    parameter integer NB_IN       = 9,
-    parameter integer NBF_IN      = 7,
+    parameter integer NB_IN          = 9,
+    parameter integer NBF_IN         = 7,
 
-    parameter integer NB_W        = 17,
-    parameter integer NBF_W       = 10,
+    parameter integer NB_W           = 17,
+    parameter integer NBF_W          = 10,
 
-    parameter integer NB_OUT      = 9,
-    parameter integer NBF_OUT     = 7,
+    parameter integer NB_OUT         = 9,
+    parameter integer NBF_OUT        = 7,
 
-    parameter integer SCALE_STAGE = 0,   // 0 => sin >>1 por etapa (recomendado para identidad con 1/N en IFFT)
-    parameter integer REORDER_BITREV = 1
+    parameter integer REORDER_BITREV = 1,
+    parameter integer BF_SCALE       = 0   // para identidad: 0
 )(
     input  wire                     i_clk,
     input  wire                     i_rst,
 
     input  wire                     i_valid,
-    input  wire                     i_start,
+    input  wire                     i_start,    // resync opcional
     input  wire signed [NB_IN-1:0]  i_xI,
     input  wire signed [NB_IN-1:0]  i_xQ,
-    input  wire                     i_inverse,
+    input  wire                     i_inverse,  // 0=FFT, 1=IFFT
 
     output wire                     o_in_ready,
 
@@ -35,9 +35,6 @@ module fft_ifft_stream #(
 );
 
     assign o_in_ready = 1'b1;
-
-    // butterfly scaling por etapa (si lo activás, OJO con la identidad y el 1/N final)
-    localparam integer BF_SCALE = (SCALE_STAGE != 0) ? 1 : 0;
 
     // narrow->wide
     wire signed [NB_W-1:0] inI_w = ($signed({{(NB_W-NB_IN){i_xI[NB_IN-1]}}, i_xI})) <<< (NBF_W - NBF_IN);
@@ -90,7 +87,7 @@ module fft_ifft_stream #(
         end
     end
 
-    // ---------------- 5-stage feedforward pipeline (frame) ----------------
+    // ---------------- PIPELINE compute (5 ciclos/frame) ----------------
     reg comp_busy;
     reg [2:0] comp_phase;
 
@@ -152,14 +149,23 @@ module fft_ifft_stream #(
                     take1 <= 1'b1;
                 end
             end else begin
-                if (comp_phase == 0) begin s1I <= c1I; s1Q <= c1Q; comp_phase <= 1; end
-                else if (comp_phase == 1) begin s2I <= c2I; s2Q <= c2Q; comp_phase <= 2; end
-                else if (comp_phase == 2) begin s3I <= c3I; s3Q <= c3Q; comp_phase <= 3; end
-                else if (comp_phase == 3) begin s4I <= c4I; s4Q <= c4Q; comp_phase <= 4; end
-                else begin
+                if (comp_phase == 0) begin
+                    s1I <= c1I; s1Q <= c1Q;
+                    comp_phase <= 1;
+                end else if (comp_phase == 1) begin
+                    s2I <= c2I; s2Q <= c2Q;
+                    comp_phase <= 2;
+                end else if (comp_phase == 2) begin
+                    s3I <= c3I; s3Q <= c3Q;
+                    comp_phase <= 3;
+                end else if (comp_phase == 3) begin
+                    s4I <= c4I; s4Q <= c4Q;
+                    comp_phase <= 4;
+                end else begin
+                    // listo: escribir frame crudo (bit-reversed) a salida
                     out_wr_req  <= 1'b1;
                     out_wr_bank <= (!out_full0) ? 1'b0 : 1'b1;
-                    out_wrI     <= c5I;   // salida DIT bit-reversed
+                    out_wrI     <= c5I;
                     out_wrQ     <= c5Q;
                     comp_busy   <= 1'b0;
                     comp_phase  <= 0;
@@ -168,18 +174,19 @@ module fft_ifft_stream #(
         end
     end
 
-    // --- salida: reorder al leer (bitrev) ---
+    // ---------------- SEND streaming + gestión out_full (UNA sola always) ----------------
+    reg sending;
+    reg send_bank;
+    reg [4:0] send_idx;
+
     function [LOGN-1:0] bitrev;
         input [LOGN-1:0] x;
         integer b;
         begin
-            for (b=0; b<LOGN; b=b+1) bitrev[b] = x[LOGN-1-b];
+            for (b=0; b<LOGN; b=b+1)
+                bitrev[b] = x[LOGN-1-b];
         end
     endfunction
-
-    reg sending;
-    reg send_bank;
-    reg [4:0] send_idx;
 
     wire [4:0] rd_idx = (REORDER_BITREV!=0) ? bitrev(send_idx) : send_idx;
     wire [9:0] out_base = rd_idx * NB_W;
@@ -195,12 +202,14 @@ module fft_ifft_stream #(
         reg sticky;
         integer t;
         begin
-            if (sh <= 0) rshift_round_even = x;
-            else begin
+            if (sh <= 0) begin
+                rshift_round_even = x;
+            end else begin
                 y     = x >>> sh;
                 guard = x[sh-1];
                 sticky = 1'b0;
-                for (t=0; t<sh-1; t=t+1) sticky = sticky | x[t];
+                for (t=0; t<sh-1; t=t+1)
+                    sticky = sticky | x[t];
                 rshift_round_even = y + (guard & (sticky | y[0]));
             end
         end
@@ -221,20 +230,26 @@ module fft_ifft_stream #(
             out_full1 <= 1'b0;
             out0I <= 0; out0Q <= 0;
             out1I <= 0; out1Q <= 0;
+
             sending   <= 1'b0;
             send_bank <= 1'b0;
             send_idx  <= 0;
+
             o_valid <= 1'b0;
             o_start <= 1'b0;
             o_yI    <= 0;
             o_yQ    <= 0;
         end else begin
-            // escribir frame al banco libre
+            // captura escritura de frame a salida
             if (out_wr_req) begin
                 if (out_wr_bank == 1'b0) begin
-                    out0I <= out_wrI; out0Q <= out_wrQ; out_full0 <= 1'b1;
+                    out0I <= out_wrI;
+                    out0Q <= out_wrQ;
+                    out_full0 <= 1'b1;
                 end else begin
-                    out1I <= out_wrI; out1Q <= out_wrQ; out_full1 <= 1'b1;
+                    out1I <= out_wrI;
+                    out1Q <= out_wrQ;
+                    out_full1 <= 1'b1;
                 end
             end
 
@@ -242,21 +257,39 @@ module fft_ifft_stream #(
             o_start <= 1'b0;
 
             if (!sending) begin
-                if (out_full0) begin sending<=1'b1; send_bank<=1'b0; send_idx<=0; end
-                else if (out_full1) begin sending<=1'b1; send_bank<=1'b1; send_idx<=0; end
+                if (out_full0) begin
+                    sending   <= 1'b1;
+                    send_bank <= 1'b0;
+                    send_idx  <= 0;
+                end else if (out_full1) begin
+                    sending   <= 1'b1;
+                    send_bank <= 1'b1;
+                    send_idx  <= 0;
+                end
             end else begin
                 o_valid <= 1'b1;
-                o_start <= (send_idx==0);
+                o_start <= (send_idx == 0);
                 o_yI    <= yI_n;
                 o_yQ    <= yQ_n;
 
-                if (send_idx==5'd31) begin
+                if (send_idx == 5'd31) begin
+                    // libero banco
                     if (send_bank==1'b0) out_full0 <= 1'b0;
                     else                 out_full1 <= 1'b0;
 
-                    if (send_bank==1'b0 && out_full1) begin send_bank<=1'b1; send_idx<=0; sending<=1'b1; end
-                    else if (send_bank==1'b1 && out_full0) begin send_bank<=1'b0; send_idx<=0; sending<=1'b1; end
-                    else begin sending<=1'b0; send_idx<=0; end
+                    // continuo si el otro está listo
+                    if (send_bank==1'b0 && out_full1) begin
+                        send_bank <= 1'b1;
+                        send_idx  <= 0;
+                        sending   <= 1'b1;
+                    end else if (send_bank==1'b1 && out_full0) begin
+                        send_bank <= 1'b0;
+                        send_idx  <= 0;
+                        sending   <= 1'b1;
+                    end else begin
+                        sending  <= 1'b0;
+                        send_idx <= 0;
+                    end
                 end else begin
                     send_idx <= send_idx + 1'b1;
                 end

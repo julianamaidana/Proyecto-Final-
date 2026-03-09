@@ -1,6 +1,15 @@
 `timescale 1ns/1ps
 `default_nettype none
 
+// ============================================================
+// fft32_stage_dit
+//  - 1 etapa DIT de FFT/IFFT de 32 puntos
+//  - 16 butterflies en paralelo
+//  - Twiddle index: k = j << (LOGN-1-STAGE)
+//  - i_inverse: 0=FFT, 1=IFFT (conjugado)
+//  - BF_SCALE controla SCALE del butterfly (0 => identidad)
+// ============================================================
+
 module fft32_stage_dit #(
     parameter integer NB_W     = 17,
     parameter integer NBF_W    = 10,
@@ -47,6 +56,7 @@ module fft32_stage_dit #(
 
           wire signed [NB_W-1:0] aI, aQ, bI, bQ;
 
+          // OJO: butterfly.v usa complex_mult adentro => complex_mult.v ES necesario
           butterfly #(.NB_W(NB_W), .NBF_W(NBF_W), .SCALE(BF_SCALE)) u_bf (
             .i_uI(uI), .i_uQ(uQ),
             .i_vI(vI), .i_vQ(vQ),
