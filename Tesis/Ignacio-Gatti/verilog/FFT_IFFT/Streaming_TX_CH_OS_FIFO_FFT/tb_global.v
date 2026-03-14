@@ -2,10 +2,10 @@
 `default_nettype none
 
 // ============================================================
-// tb_top_global_all  v6  (con slicer_qpsk)
+// tb_top_global_all  v7  (con zero_pad_error)
 //
 // Verifica la cadena completa:
-//   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DISCARD_N -> SLICER_QPSK
+//   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DISCARD_N -> SLICER_QPSK -> ZERO_PAD_ERROR
 //
 // BLOQUES DE VERIFICACIÓN
 // -----------------------
@@ -16,7 +16,8 @@
 // [BLOQUE 5] CMUL
 // [BLOQUE 6] IFFT
 // [BLOQUE 7] DISCARD_N
-// [BLOQUE 8] SLICER_QPSK  <-- NUEVO en v6
+// [BLOQUE 8] SLICER_QPSK
+// [BLOQUE 9] ZERO_PAD_ERROR  <-- NUEVO en v7
 //   Estrategia — delay line directa (igual que Bloque 7):
 //     slicer tiene 1 ciclo de latencia. sl_out[T] == f(dn_out[T-1]).
 //     Se registra dn_out 1 ciclo (dn_d1) y se verifica ciclo a ciclo.
@@ -107,6 +108,10 @@ module tb_top_global_all;
     wire signed [WN-1:0]     sl_out_yhat_I, sl_out_yhat_Q;
     wire signed [WN-1:0]     sl_out_e_I, sl_out_e_Q;
 
+    // --- ZERO_PAD_ERROR ---
+    wire                     zpe_out_valid, zpe_out_start;
+    wire signed [WN-1:0]     zpe_out_eI, zpe_out_eQ;
+
     // ============================================================
     // DUT
     // ============================================================
@@ -168,7 +173,12 @@ module tb_top_global_all;
         .sl_out_yhat_I (sl_out_yhat_I),
         .sl_out_yhat_Q (sl_out_yhat_Q),
         .sl_out_e_I    (sl_out_e_I),
-        .sl_out_e_Q    (sl_out_e_Q)
+        .sl_out_e_Q    (sl_out_e_Q),
+        // --- ZERO_PAD_ERROR ---
+        .zpe_out_valid (zpe_out_valid),
+        .zpe_out_start (zpe_out_start),
+        .zpe_out_eI    (zpe_out_eI),
+        .zpe_out_eQ    (zpe_out_eQ)
     );
 
     // ============================================================
@@ -771,6 +781,152 @@ module tb_top_global_all;
     end
 
     // ============================================================
+    // ============================================================
+    // BLOQUE 9 — ZERO_PAD_ERROR Monitor  v2 (delay-line)
+    // ============================================================
+    //
+    // Verificación por delay line fijo:
+    //
+    //   ZPE recibe e[j] en ciclo A+j (sl_out_valid=1)
+    //   ZPE emite  e[j] en ciclo A+2N+1+j  (RECV=N + ZEROS=N + latencia=1)
+    //   → delay constante = 2N+1 = 33 ciclos
+    //
+    //   Un shift register de profundidad 33 retrasa sl_out_e exactamente
+    //   ese tiempo. En la zona de error, zpe_out debe coincidir con
+    //   e_dly[ZPE_DELAY] siempre que e_dly_v[ZPE_DELAY]=1.
+    //
+    //   No se necesitan snapshots, buffers ni sincronización manual.
+    //
+    // Propiedades:
+    //   Z1) primeras N salidas del frame = 0
+    //   Z2) últimas N salidas = e_dly[ZPE_DELAY] (sl_out_e retrasado 33 ciclos)
+    //   Z3) exactamente 1 start por frame
+    //   Z4) exactamente 2N muestras válidas por frame
+    // ============================================================
+
+    localparam integer ZPE_DELAY = 2*N_HALF + 1;  // 33
+
+    // Shift register para sl_out_e (desplaza cada ciclo de reloj)
+    reg signed [WN-1:0] e_dly_I [0:ZPE_DELAY];
+    reg signed [WN-1:0] e_dly_Q [0:ZPE_DELAY];
+    reg                 e_dly_v [0:ZPE_DELAY];
+    integer             zpe_dly_k;
+
+    always @(posedge clk_fast) begin : zpe_delay_line
+        integer k;
+        if (rst) begin
+            for (k=0; k<=ZPE_DELAY; k=k+1) begin
+                e_dly_I[k] <= 0;
+                e_dly_Q[k] <= 0;
+                e_dly_v[k] <= 0;
+            end
+        end else begin
+            e_dly_I[0] <= sl_out_e_I;
+            e_dly_Q[0] <= sl_out_e_Q;
+            e_dly_v[0] <= sl_out_valid;
+            for (k=1; k<=ZPE_DELAY; k=k+1) begin
+                e_dly_I[k] <= e_dly_I[k-1];
+                e_dly_Q[k] <= e_dly_Q[k-1];
+                e_dly_v[k] <= e_dly_v[k-1];
+            end
+        end
+    end
+
+    // Contadores del monitor
+    integer zpe_total_errs;
+    integer zpe_frames_checked;
+    integer zpe_frame_errs;
+    integer zpe_frame_valid_cnt;
+    integer zpe_frame_start_cnt;
+    integer zpe_z1_errs;
+    integer zpe_z2_errs;
+    integer zpe_z3_errs;
+    integer zpe_z4_errs;
+    integer zpe_out_idx;
+    integer zpe_armed;
+
+    initial begin
+        zpe_total_errs=0; zpe_frames_checked=0; zpe_frame_errs=0;
+        zpe_frame_valid_cnt=0; zpe_frame_start_cnt=0;
+        zpe_z1_errs=0; zpe_z2_errs=0; zpe_z3_errs=0; zpe_z4_errs=0;
+        zpe_out_idx=0; zpe_armed=0;
+    end
+
+    always @(posedge clk_fast) begin : zpe_monitor
+        if (rst) begin
+            zpe_total_errs      <= 0; zpe_frames_checked <= 0;
+            zpe_frame_errs      <= 0; zpe_frame_valid_cnt<= 0;
+            zpe_frame_start_cnt <= 0; zpe_out_idx        <= 0;
+            zpe_z1_errs <= 0; zpe_z2_errs <= 0;
+            zpe_z3_errs <= 0; zpe_z4_errs <= 0;
+            zpe_armed   <= 0;
+        end else begin
+            if (zpe_out_valid) begin
+                zpe_armed <= 1;
+
+                if (zpe_out_start) begin
+                    // Cerrar frame anterior
+                    if (zpe_armed) begin
+                        if (zpe_frame_valid_cnt !== NFFT) begin
+                            zpe_z4_errs    <= zpe_z4_errs + 1;
+                            zpe_total_errs <= zpe_total_errs + 1;
+                            $display("[ZPE][FRAME %0d] FAIL Z4: valid_cnt=%0d exp=%0d",
+                                zpe_frames_checked, zpe_frame_valid_cnt, NFFT);
+                        end
+                        if (zpe_frame_start_cnt !== 1) begin
+                            zpe_z3_errs    <= zpe_z3_errs + 1;
+                            zpe_total_errs <= zpe_total_errs + 1;
+                            $display("[ZPE][FRAME %0d] FAIL Z3: start_cnt=%0d exp=1",
+                                zpe_frames_checked, zpe_frame_start_cnt);
+                        end
+                        if (zpe_frame_errs == 0)
+                            $display("[ZPE][FRAME %0d] PASS  valid=%0d  errs=0",
+                                zpe_frames_checked, zpe_frame_valid_cnt);
+                        else
+                            $display("[ZPE][FRAME %0d] FAIL  errs=%0d",
+                                zpe_frames_checked, zpe_frame_errs);
+                        zpe_frames_checked <= zpe_frames_checked + 1;
+                    end
+                    zpe_frame_valid_cnt  <= 1;
+                    zpe_frame_start_cnt  <= 1;
+                    zpe_frame_errs       <= 0;
+                    zpe_out_idx          <= 1;
+                end else begin
+                    zpe_frame_valid_cnt <= zpe_frame_valid_cnt + 1;
+                    zpe_out_idx         <= zpe_out_idx + 1;
+                end
+
+                // Z1: primera mitad debe ser 0
+                if (zpe_out_idx < N_HALF) begin
+                    if ($signed(zpe_out_eI) !== 0 || $signed(zpe_out_eQ) !== 0) begin
+                        zpe_frame_errs <= zpe_frame_errs + 1;
+                        zpe_z1_errs    <= zpe_z1_errs + 1;
+                        zpe_total_errs <= zpe_total_errs + 1;
+                        $display("[ZPE][FRAME %0d] FAIL Z1: idx=%0d eI=%0d eQ=%0d (exp 0)",
+                            zpe_frames_checked, zpe_out_idx,
+                            $signed(zpe_out_eI), $signed(zpe_out_eQ));
+                    end
+                end
+
+                // Z2: segunda mitad = sl_out_e retrasado ZPE_DELAY ciclos
+                if (zpe_out_idx >= N_HALF && e_dly_v[ZPE_DELAY]) begin
+                    if ($signed(zpe_out_eI) !== $signed(e_dly_I[ZPE_DELAY]) ||
+                        $signed(zpe_out_eQ) !== $signed(e_dly_Q[ZPE_DELAY])) begin
+                        zpe_frame_errs <= zpe_frame_errs + 1;
+                        zpe_z2_errs    <= zpe_z2_errs + 1;
+                        zpe_total_errs <= zpe_total_errs + 1;
+                        $display("[ZPE][FRAME %0d] FAIL Z2: idx=%0d eI=%0d exp=%0d  eQ=%0d exp=%0d",
+                            zpe_frames_checked, zpe_out_idx - N_HALF,
+                            $signed(zpe_out_eI), $signed(e_dly_I[ZPE_DELAY]),
+                            $signed(zpe_out_eQ), $signed(e_dly_Q[ZPE_DELAY]));
+                    end
+                end
+
+            end
+        end
+    end
+
+    // ============================================================
     // RESUMEN FINAL  — disparado cuando IFFT termina sus 30 frames
     // ============================================================
     always @(posedge clk_fast) begin
@@ -784,7 +940,7 @@ module tb_top_global_all;
 
             $display("");
             $display("========================================");
-            $display("[TB] RESUMEN FINAL  v6 (con slicer_qpsk)");
+            $display("[TB] RESUMEN FINAL  v7 (con zero_pad_error)");
             $display("========================================");
             $display("[OS]   %s  overflow=%0d  period_warns=%0d",
                 (os_overflow||os_warns!=0) ? "FAIL":"PASS", os_overflow, os_warns);
@@ -813,6 +969,11 @@ module tb_top_global_all;
                 sl_total_errs==0 ? "PASS: yhat=+-91  e=yhat-y" : "FAIL");
             $display("  [SL] S4(valid_cnt) errs=%0d  S5(start_cnt) errs=%0d  S1/S2(yhat) errs=%0d  S3(error) errs=%0d",
                 sl_p1_errs, sl_p2_errs, sl_p3_errs, sl_p4_errs);
+            $display("[ZPE]  frames_checked=%0d  total_errs=%0d  => %s",
+                zpe_frames_checked, zpe_total_errs,
+                zpe_total_errs==0 ? "PASS: [0..0|e_blk] OK" : "FAIL");
+            $display("  [ZPE] Z1(ceros) errs=%0d  Z2(datos) errs=%0d  Z3(start) errs=%0d  Z4(valid) errs=%0d",
+                zpe_z1_errs, zpe_z2_errs, zpe_z3_errs, zpe_z4_errs);
             $display("========================================");
             $finish;
         end

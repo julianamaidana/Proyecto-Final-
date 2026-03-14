@@ -2,16 +2,15 @@
 `default_nettype none
 
 // ============================================================
-// top_global_all  v6  (con slicer_qpsk)
+// top_global_all  v7  (con zero_pad_error)
 //
 // Cadena completa:
-//   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DISCARD_N -> SLICER_QPSK
+//   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DISCARD_N -> SLICER_QPSK -> ZERO_PAD_ERROR
 //
-// NUEVO en v6:
-//   - Instancia slicer_qpsk después de discard_n.
-//   - Puertos nuevos: sl_out_valid, sl_out_start,
-//     sl_out_yhat_I/Q  (símbolo decidido ±QPSK_A)
-//     sl_out_e_I/Q     (error e = yhat - y, entrada al LMS futuro)
+// NUEVO en v7:
+//   - Instancia zero_pad_error después de slicer_qpsk.
+//   - Puertos nuevos: zpe_out_valid, zpe_out_start,
+//     zpe_out_eI/Q  (frame 2N = [0...0 | e_blk], entrada a FFT_ERROR)
 // ============================================================
 
 module top_global_all #(
@@ -98,7 +97,13 @@ module top_global_all #(
     output wire signed [WN-1:0] sl_out_yhat_I,  // símbolo decidido Re  (±QPSK_A)
     output wire signed [WN-1:0] sl_out_yhat_Q,  // símbolo decidido Im  (±QPSK_A)
     output wire signed [WN-1:0] sl_out_e_I,     // error Re  e = yhat - y
-    output wire signed [WN-1:0] sl_out_e_Q      // error Im  e = yhat - y
+    output wire signed [WN-1:0] sl_out_e_Q,     // error Im  e = yhat - y
+
+    // --- ZERO_PAD_ERROR ---
+    output wire                 zpe_out_valid,  // 1 durante 2N muestras por frame
+    output wire                 zpe_out_start,  // 1 en la primera muestra (primer cero)
+    output wire signed [WN-1:0] zpe_out_eI,     // Re: 0 (primera mitad) | e (segunda mitad)
+    output wire signed [WN-1:0] zpe_out_eQ      // Im: 0 (primera mitad) | e (segunda mitad)
 );
 
     // ============================================================
@@ -404,6 +409,32 @@ module top_global_all #(
         .o_yhat_Q (sl_out_yhat_Q),
         .o_e_I    (sl_out_e_I),
         .o_e_Q    (sl_out_e_Q)
+    );
+
+    // ============================================================
+    // ZERO_PAD_ERROR  (u_zpe)
+    //
+    //   Entrada:  e_blk  = sl_out_e_*  (N errores del slicer)
+    //   Salida:   frame  = [0...0 | e_blk]  (2N muestras para FFT_ERROR)
+    //
+    //   FSM interna: RECV(N) → ZEROS(N) → ERROR(N)
+    //   Latencia: N ciclos de recepción antes de emitir el frame
+    //   Próximo en cadena: FFT_ERROR (rama LMS).
+    // ============================================================
+    zero_pad_error #(
+        .NB_W (WN),
+        .NFFT (NFFT)
+    ) u_zpe (
+        .clk     (clk_fast),
+        .rst     (rst),
+        .i_valid (sl_out_valid),
+        .i_start (sl_out_start),
+        .i_eI    (sl_out_e_I),
+        .i_eQ    (sl_out_e_Q),
+        .o_valid (zpe_out_valid),
+        .o_start (zpe_out_start),
+        .o_eI    (zpe_out_eI),
+        .o_eQ    (zpe_out_eQ)
     );
 
 endmodule
