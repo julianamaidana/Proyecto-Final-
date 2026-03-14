@@ -804,7 +804,7 @@ module tb_top_global_all;
     //   Z4) exactamente 2N muestras válidas por frame
     // ============================================================
 
-    localparam integer ZPE_DELAY = 2*N_HALF + 1;  // 33
+    localparam integer ZPE_DELAY = 2*N_HALF;      // 32  (no 33)
 
     // Shift register para sl_out_e (desplaza cada ciclo de reloj)
     reg signed [WN-1:0] e_dly_I [0:ZPE_DELAY];
@@ -909,7 +909,7 @@ module tb_top_global_all;
                 end
 
                 // Z2: segunda mitad = sl_out_e retrasado ZPE_DELAY ciclos
-                if (zpe_out_idx >= N_HALF && e_dly_v[ZPE_DELAY]) begin
+                if (zpe_out_idx >= N_HALF && zpe_out_idx < NFFT && e_dly_v[ZPE_DELAY]) begin
                     if ($signed(zpe_out_eI) !== $signed(e_dly_I[ZPE_DELAY]) ||
                         $signed(zpe_out_eQ) !== $signed(e_dly_Q[ZPE_DELAY])) begin
                         zpe_frame_errs <= zpe_frame_errs + 1;
