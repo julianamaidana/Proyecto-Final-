@@ -2,15 +2,16 @@
 `default_nettype none
 
 // ============================================================
-// top_global_all  v7  (con zero_pad_error)
+// top_global_all  v8  (con fft_error)
 //
 // Cadena completa:
-//   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DISCARD_N -> SLICER_QPSK -> ZERO_PAD_ERROR
+//   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DN -> SLICER -> ZPE -> FFT_ERROR
 //
-// NUEVO en v7:
-//   - Instancia zero_pad_error después de slicer_qpsk.
-//   - Puertos nuevos: zpe_out_valid, zpe_out_start,
-//     zpe_out_eI/Q  (frame 2N = [0...0 | e_blk], entrada a FFT_ERROR)
+// NUEVO en v8:
+//   - Instancia fft_error después de zero_pad_error.
+//   - Reusar fft_ifft_stream con i_inverse=0, mismos parámetros que u_fft.
+//   - Puertos nuevos: ffte_out_valid, ffte_out_start,
+//     ffte_out_I/Q  (espectro del error E_k, entrada al GRADIENTE)
 // ============================================================
 
 module top_global_all #(
@@ -103,7 +104,13 @@ module top_global_all #(
     output wire                 zpe_out_valid,  // 1 durante 2N muestras por frame
     output wire                 zpe_out_start,  // 1 en la primera muestra (primer cero)
     output wire signed [WN-1:0] zpe_out_eI,     // Re: 0 (primera mitad) | e (segunda mitad)
-    output wire signed [WN-1:0] zpe_out_eQ      // Im: 0 (primera mitad) | e (segunda mitad)
+    output wire signed [WN-1:0] zpe_out_eQ,     // Im: 0 (primera mitad) | e (segunda mitad)
+
+    // --- FFT_ERROR ---
+    output wire                       ffte_out_valid, // 1 durante 2N muestras por frame
+    output wire                       ffte_out_start, // 1 en la primera muestra del frame
+    output wire signed [NB_INT-1:0]   ffte_out_I,     // espectro del error Re  E_k
+    output wire signed [NB_INT-1:0]   ffte_out_Q      // espectro del error Im  E_k
 );
 
     // ============================================================
@@ -435,6 +442,39 @@ module top_global_all #(
         .o_start (zpe_out_start),
         .o_eI    (zpe_out_eI),
         .o_eQ    (zpe_out_eQ)
+    );
+
+    // ============================================================
+    // FFT_ERROR  (u_fft_error)
+    //
+    //   Entrada:  zpe_out_*  (frame 2N = [0..0 | e_blk])
+    //   Salida:   E_k        (espectro del error, dominio frecuencia)
+    //
+    //   Reuso directo de fft_ifft_stream con i_inverse=0.
+    //   Mismos parámetros que u_fft (cadena principal).
+    //   Entrada en WN bits (9), salida en NB_INT bits (17).
+    //   Próximo en cadena: GRADIENTE (PHI = conj(X_hist) * E_k).
+    // ============================================================
+    fft_ifft_stream #(
+        .NFFT(NFFT), .LOGN(LOGN),
+        .NB_IN(WN),      .NBF_IN(7),
+        .NB_W(NB_INT),   .NBF_W(NBF_INT),
+        .NB_OUT(NB_INT), .NBF_OUT(NBF_INT),
+        .BF_SCALE(0),
+        .REORDER_BITREV(REORDER_BITREV)
+    ) u_fft_error (
+        .i_clk    (clk_fast),
+        .i_rst    (rst),
+        .i_valid  (zpe_out_valid),
+        .i_start  (zpe_out_start),
+        .i_xI     (zpe_out_eI),
+        .i_xQ     (zpe_out_eQ),
+        .i_inverse(1'b0),
+        .o_in_ready(),
+        .o_start  (ffte_out_start),
+        .o_valid  (ffte_out_valid),
+        .o_yI     (ffte_out_I),
+        .o_yQ     (ffte_out_Q)
     );
 
 endmodule

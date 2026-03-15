@@ -64,9 +64,9 @@ module zero_pad_error #(
     // FSM
     // ============================================================
     localparam [1:0] ST_IDLE  = 2'd0,
-                     ST_RECV  = 2'd1,
-                     ST_ZEROS = 2'd2,
-                     ST_ERROR = 2'd3;
+                    ST_RECV  = 2'd1,
+                    ST_ZEROS = 2'd2,
+                    ST_ERROR = 2'd3;
 
     reg [1:0]  state;
     reg [KW:0] cnt;   // KW+1 bits para no hacer overflow en N-1

@@ -87,9 +87,9 @@ module slicer_qpsk #(
 
     // Error combinacional (extendido a NB_W+1 para no perder signo)
     assign e_I_ext = $signed({yhat_I_comb[NB_W-1], yhat_I_comb})
-                   - $signed({i_yI[NB_W-1],        i_yI});
+                - $signed({i_yI[NB_W-1],        i_yI});
     assign e_Q_ext = $signed({yhat_Q_comb[NB_W-1], yhat_Q_comb})
-                   - $signed({i_yQ[NB_W-1],        i_yQ});
+                - $signed({i_yQ[NB_W-1],        i_yQ});
 
     // Saturación de NB_W+1 a NB_W bits (sin cambio de punto fijo)
     wire signed [NB_W-1:0] e_I_sat;

@@ -2,10 +2,10 @@
 `default_nettype none
 
 // ============================================================
-// tb_top_global_all  v7  (con zero_pad_error)
+// tb_top_global_all  v8  (con fft_error)
 //
 // Verifica la cadena completa:
-//   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DISCARD_N -> SLICER_QPSK -> ZERO_PAD_ERROR
+//   TX->CH->OS->FIFO->FFT->HB->CMUL->IFFT->DN->SLICER->ZPE->FFT_ERROR
 //
 // BLOQUES DE VERIFICACIÓN
 // -----------------------
@@ -17,7 +17,12 @@
 // [BLOQUE 6] IFFT
 // [BLOQUE 7] DISCARD_N
 // [BLOQUE 8] SLICER_QPSK
-// [BLOQUE 9] ZERO_PAD_ERROR  <-- NUEVO en v7
+// [BLOQUE 9] ZERO_PAD_ERROR
+// [BLOQUE 10] FFT_ERROR  <-- NUEVO en v8
+//   Verificaciones de timing y estructura (no hay referencia matemática):
+//   F1) exactamente 2N muestras válidas por frame
+//   F2) exactamente 1 start por frame
+//   F3) salida en NB_INT=17 bits (no overflow catastrófico: |E_k| < 2^16)
 //   Estrategia — delay line directa (igual que Bloque 7):
 //     slicer tiene 1 ciclo de latencia. sl_out[T] == f(dn_out[T-1]).
 //     Se registra dn_out 1 ciclo (dn_d1) y se verifica ciclo a ciclo.
@@ -112,6 +117,10 @@ module tb_top_global_all;
     wire                     zpe_out_valid, zpe_out_start;
     wire signed [WN-1:0]     zpe_out_eI, zpe_out_eQ;
 
+    // --- FFT_ERROR ---
+    wire                          ffte_out_valid, ffte_out_start;
+    wire signed [NB_INT-1:0]      ffte_out_I, ffte_out_Q;
+
     // ============================================================
     // DUT
     // ============================================================
@@ -178,7 +187,12 @@ module tb_top_global_all;
         .zpe_out_valid (zpe_out_valid),
         .zpe_out_start (zpe_out_start),
         .zpe_out_eI    (zpe_out_eI),
-        .zpe_out_eQ    (zpe_out_eQ)
+        .zpe_out_eQ    (zpe_out_eQ),
+        // --- FFT_ERROR ---
+        .ffte_out_valid (ffte_out_valid),
+        .ffte_out_start (ffte_out_start),
+        .ffte_out_I     (ffte_out_I),
+        .ffte_out_Q     (ffte_out_Q)
     );
 
     // ============================================================
@@ -804,7 +818,7 @@ module tb_top_global_all;
     //   Z4) exactamente 2N muestras válidas por frame
     // ============================================================
 
-    localparam integer ZPE_DELAY = 2*N_HALF;      // 32  (no 33)
+    localparam integer ZPE_DELAY = 2*N_HALF;      // 32
 
     // Shift register para sl_out_e (desplaza cada ciclo de reloj)
     reg signed [WN-1:0] e_dly_I [0:ZPE_DELAY];
@@ -927,6 +941,98 @@ module tb_top_global_all;
     end
 
     // ============================================================
+    // ============================================================
+    // BLOQUE 10 — FFT_ERROR Monitor  (NUEVO en v8)
+    // ============================================================
+    //
+    // La FFT_ERROR es un reuso de fft_ifft_stream con i_inverse=0.
+    // No tenemos referencia matemática del resultado, así que solo
+    // verificamos estructura y timing:
+    //
+    //   F1) exactamente 2N muestras válidas por frame
+    //   F2) exactamente 1 start por frame
+    //   F3) o_valid continuo dentro del frame (sin gaps)
+    //
+    // Estrategia: igual que el monitor de la FFT principal (BLOQUE 3)
+    // ============================================================
+
+    integer ffte_total_errs;
+    integer ffte_frames_checked;
+    integer ffte_frame_errs;
+    integer ffte_frame_valid_cnt;
+    integer ffte_frame_start_cnt;
+    integer ffte_f1_errs;
+    integer ffte_f2_errs;
+    integer ffte_f3_errs;
+    reg     ffte_armed;
+    reg     ffte_prev_valid;
+
+    initial begin
+        ffte_total_errs=0; ffte_frames_checked=0; ffte_frame_errs=0;
+        ffte_frame_valid_cnt=0; ffte_frame_start_cnt=0;
+        ffte_f1_errs=0; ffte_f2_errs=0; ffte_f3_errs=0;
+        ffte_armed=0; ffte_prev_valid=0;
+    end
+
+    always @(posedge clk_fast) begin : ffte_monitor
+        if (rst) begin
+            ffte_total_errs     <= 0; ffte_frames_checked <= 0;
+            ffte_frame_errs     <= 0; ffte_frame_valid_cnt<= 0;
+            ffte_frame_start_cnt<= 0;
+            ffte_f1_errs <= 0; ffte_f2_errs <= 0; ffte_f3_errs <= 0;
+            ffte_armed   <= 0; ffte_prev_valid <= 0;
+        end else begin
+
+            if (ffte_out_valid) begin
+                ffte_armed <= 1;
+
+                if (ffte_out_start) begin
+                    // Cerrar frame anterior
+                    if (ffte_armed) begin
+                        // F1: conteo válidos
+                        if (ffte_frame_valid_cnt !== NFFT) begin
+                            ffte_f1_errs    <= ffte_f1_errs + 1;
+                            ffte_total_errs <= ffte_total_errs + 1;
+                            $display("[FFTE][FRAME %0d] FAIL F1: valid_cnt=%0d exp=%0d",
+                                ffte_frames_checked, ffte_frame_valid_cnt, NFFT);
+                        end
+                        // F2: start count
+                        if (ffte_frame_start_cnt !== 1) begin
+                            ffte_f2_errs    <= ffte_f2_errs + 1;
+                            ffte_total_errs <= ffte_total_errs + 1;
+                            $display("[FFTE][FRAME %0d] FAIL F2: start_cnt=%0d exp=1",
+                                ffte_frames_checked, ffte_frame_start_cnt);
+                        end
+                        if (ffte_frame_errs == 0)
+                            $display("[FFTE][FRAME %0d] PASS  valid=%0d  errs=0",
+                                ffte_frames_checked, ffte_frame_valid_cnt);
+                        else
+                            $display("[FFTE][FRAME %0d] FAIL  errs=%0d",
+                                ffte_frames_checked, ffte_frame_errs);
+                        ffte_frames_checked <= ffte_frames_checked + 1;
+                    end
+                    ffte_frame_valid_cnt  <= 1;
+                    ffte_frame_start_cnt  <= 1;
+                    ffte_frame_errs       <= 0;
+                end else begin
+                    ffte_frame_valid_cnt <= ffte_frame_valid_cnt + 1;
+                    // F3: gap detection — si el ciclo anterior no tenía valid y no es start
+                    if (ffte_armed && !ffte_prev_valid) begin
+                        ffte_frame_errs <= ffte_frame_errs + 1;
+                        ffte_f3_errs    <= ffte_f3_errs + 1;
+                        ffte_total_errs <= ffte_total_errs + 1;
+                        $display("[FFTE][FRAME %0d] FAIL F3: gap detectado en valid",
+                            ffte_frames_checked);
+                    end
+                end
+            end
+
+            ffte_prev_valid <= ffte_out_valid;
+        end
+    end
+
+
+    // ============================================================
     // RESUMEN FINAL  — disparado cuando IFFT termina sus 30 frames
     // ============================================================
     always @(posedge clk_fast) begin
@@ -940,7 +1046,7 @@ module tb_top_global_all;
 
             $display("");
             $display("========================================");
-            $display("[TB] RESUMEN FINAL  v7 (con zero_pad_error)");
+            $display("[TB] RESUMEN FINAL  v8 (con fft_error)");
             $display("========================================");
             $display("[OS]   %s  overflow=%0d  period_warns=%0d",
                 (os_overflow||os_warns!=0) ? "FAIL":"PASS", os_overflow, os_warns);
@@ -974,6 +1080,11 @@ module tb_top_global_all;
                 zpe_total_errs==0 ? "PASS: [0..0|e_blk] OK" : "FAIL");
             $display("  [ZPE] Z1(ceros) errs=%0d  Z2(datos) errs=%0d  Z3(start) errs=%0d  Z4(valid) errs=%0d",
                 zpe_z1_errs, zpe_z2_errs, zpe_z3_errs, zpe_z4_errs);
+            $display("[FFTE] frames_checked=%0d  total_errs=%0d  => %s",
+                ffte_frames_checked, ffte_total_errs,
+                ffte_total_errs==0 ? "PASS: FFT_ERROR timing OK" : "FAIL");
+            $display("  [FFTE] F1(valid_cnt) errs=%0d  F2(start_cnt) errs=%0d  F3(gaps) errs=%0d",
+                ffte_f1_errs, ffte_f2_errs, ffte_f3_errs);
             $display("========================================");
             $finish;
         end
