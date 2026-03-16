@@ -2,16 +2,17 @@
 `default_nettype none
 
 // ============================================================
-// top_global_all  v8  (con fft_error)
+// top_global_all  v9  (con xhist_delay)
 //
 // Cadena completa:
 //   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DN -> SLICER -> ZPE -> FFT_ERROR
+//                              └──── xhist_delay ────┘
 //
-// NUEVO en v8:
-//   - Instancia fft_error después de zero_pad_error.
-//   - Reusar fft_ifft_stream con i_inverse=0, mismos parámetros que u_fft.
-//   - Puertos nuevos: ffte_out_valid, ffte_out_start,
-//     ffte_out_I/Q  (espectro del error E_k, entrada al GRADIENTE)
+// NUEVO en v9:
+//   - Instancia xhist_delay conectado a hb_out_X_old_re/im
+//   - Retrasa X_hist exactamente 118 ciclos para sincronizar con ffte_out
+//   - Puertos nuevos: xhd_out_valid, xhd_out_start, xhd_out_re/im
+//   - VERIFICACION: xhd_out_start debe coincidir con ffte_out_start
 // ============================================================
 
 module top_global_all #(
@@ -110,7 +111,15 @@ module top_global_all #(
     output wire                       ffte_out_valid, // 1 durante 2N muestras por frame
     output wire                       ffte_out_start, // 1 en la primera muestra del frame
     output wire signed [NB_INT-1:0]   ffte_out_I,     // espectro del error Re  E_k
-    output wire signed [NB_INT-1:0]   ffte_out_Q      // espectro del error Im  E_k
+    output wire signed [NB_INT-1:0]   ffte_out_Q,     // espectro del error Im  E_k
+
+    // --- XHIST_DELAY ---
+    // X_hist retrasado 118 ciclos — sincronizado con ffte_out
+    // VERIFICAR: xhd_out_start debe coincidir con ffte_out_start
+    output wire                        xhd_out_valid,  // 1 cuando hay dato válido
+    output wire                        xhd_out_start,  // 1 en primera muestra del frame
+    output wire signed [NB_INT-1:0]    xhd_out_re,     // X_hist Re retrasado
+    output wire signed [NB_INT-1:0]    xhd_out_im      // X_hist Im retrasado
 );
 
     // ============================================================
@@ -475,6 +484,41 @@ module top_global_all #(
         .o_valid  (ffte_out_valid),
         .o_yI     (ffte_out_I),
         .o_yQ     (ffte_out_Q)
+    );
+
+    // ============================================================
+    // XHIST_DELAY  (u_xhd)
+    //
+    //   Retrasa X_hist (hb_out_X_old_re/im) exactamente 118 ciclos
+    //   para sincronizarlo con la salida de la FFT_ERROR (ffte_out).
+    //
+    //   Por qué 118 ciclos:
+    //     El history buffer emite X_hist junto con la FFT principal.
+    //     El error E_k tarda 118 ciclos más en calcularse:
+    //       CMUL + IFFT + DN + SLICER + ZPE + FFT_ERROR = 118 ciclos
+    //     Sin este retardo, cuando E_k llega al GRADIENTE,
+    //     X_hist del mismo frame ya pasó hace ~4 frames.
+    //
+    //   VERIFICACION en waveform:
+    //     xhd_out_start y ffte_out_start deben aparecer en el
+    //     MISMO ciclo exacto. Si hay diferencia, ajustar DELAY.
+    //
+    //   Próximo en cadena: GRADIENTE (PHI = conj(X_hist) * E_k)
+    // ============================================================
+    xhist_delay #(
+        .NB_W (NB_INT),
+        .DELAY(118)
+    ) u_xhd (
+        .clk    (clk_fast),
+        .rst    (rst),
+        .i_valid(hb_out_valid),
+        .i_start(hb_out_start),
+        .i_xre  (hb_out_old_I),
+        .i_xim  (hb_out_old_Q),
+        .o_valid(xhd_out_valid),
+        .o_start(xhd_out_start),
+        .o_xre  (xhd_out_re),
+        .o_xim  (xhd_out_im)
     );
 
 endmodule

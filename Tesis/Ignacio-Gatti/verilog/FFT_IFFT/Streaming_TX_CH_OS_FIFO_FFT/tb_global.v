@@ -2,27 +2,33 @@
 `default_nettype none
 
 // ============================================================
-// tb_top_global_all  v8  (con fft_error)
+// tb_top_global_all  v9  (con xhist_delay)
 //
 // Verifica la cadena completa:
 //   TX->CH->OS->FIFO->FFT->HB->CMUL->IFFT->DN->SLICER->ZPE->FFT_ERROR
+//                           └── xhist_delay ──┘
 //
 // BLOQUES DE VERIFICACIÓN
 // -----------------------
-// [BLOQUE 1] OS
-// [BLOQUE 2] FIFO
-// [BLOQUE 3] FFT
-// [BLOQUE 4] HB
-// [BLOQUE 5] CMUL
-// [BLOQUE 6] IFFT
-// [BLOQUE 7] DISCARD_N
-// [BLOQUE 8] SLICER_QPSK
-// [BLOQUE 9] ZERO_PAD_ERROR
-// [BLOQUE 10] FFT_ERROR  <-- NUEVO en v8
-//   Verificaciones de timing y estructura (no hay referencia matemática):
-//   F1) exactamente 2N muestras válidas por frame
-//   F2) exactamente 1 start por frame
-//   F3) salida en NB_INT=17 bits (no overflow catastrófico: |E_k| < 2^16)
+// [BLOQUE 1]  OS
+// [BLOQUE 2]  FIFO
+// [BLOQUE 3]  FFT
+// [BLOQUE 4]  HB
+// [BLOQUE 5]  CMUL
+// [BLOQUE 6]  IFFT
+// [BLOQUE 7]  DISCARD_N
+// [BLOQUE 8]  SLICER_QPSK
+// [BLOQUE 9]  ZERO_PAD_ERROR
+// [BLOQUE 10] FFT_ERROR
+// [BLOQUE 11] XHIST_DELAY  <-- NUEVO en v9
+//
+// VERIFICACION CLAVE del BLOQUE 11:
+//   xhd_out_start y ffte_out_start deben aparecer en el MISMO ciclo.
+//   Si hay diferencia, el GRADIENTE va a multiplicar muestras equivocadas.
+//
+//   X1) xhd_out_start == ffte_out_start ciclo a ciclo (sin desfasaje)
+//   X2) xhd_out_valid == ffte_out_valid ciclo a ciclo (misma duración)
+//   X3) exactamente NFFT=32 muestras válidas por frame en xhd_out
 //   Estrategia — delay line directa (igual que Bloque 7):
 //     slicer tiene 1 ciclo de latencia. sl_out[T] == f(dn_out[T-1]).
 //     Se registra dn_out 1 ciclo (dn_d1) y se verifica ciclo a ciclo.
@@ -121,6 +127,10 @@ module tb_top_global_all;
     wire                          ffte_out_valid, ffte_out_start;
     wire signed [NB_INT-1:0]      ffte_out_I, ffte_out_Q;
 
+    // --- XHIST_DELAY ---
+    wire                          xhd_out_valid, xhd_out_start;
+    wire signed [NB_INT-1:0]      xhd_out_re, xhd_out_im;
+
     // ============================================================
     // DUT
     // ============================================================
@@ -192,7 +202,12 @@ module tb_top_global_all;
         .ffte_out_valid (ffte_out_valid),
         .ffte_out_start (ffte_out_start),
         .ffte_out_I     (ffte_out_I),
-        .ffte_out_Q     (ffte_out_Q)
+        .ffte_out_Q     (ffte_out_Q),
+        // --- XHIST_DELAY ---
+        .xhd_out_valid  (xhd_out_valid),
+        .xhd_out_start  (xhd_out_start),
+        .xhd_out_re     (xhd_out_re),
+        .xhd_out_im     (xhd_out_im)
     );
 
     // ============================================================
@@ -802,10 +817,10 @@ module tb_top_global_all;
     // Verificación por delay line fijo:
     //
     //   ZPE recibe e[j] en ciclo A+j (sl_out_valid=1)
-    //   ZPE emite  e[j] en ciclo A+2N+1+j  (RECV=N + ZEROS=N + latencia=1)
-    //   → delay constante = 2N+1 = 33 ciclos
+    //   ZPE v5 (ping-pong): emite e[j] en ciclo A+32+j
+    //   → delay constante = 2N = 32 ciclos
     //
-    //   Un shift register de profundidad 33 retrasa sl_out_e exactamente
+    //   Un shift register de profundidad 32 retrasa sl_out_e exactamente
     //   ese tiempo. En la zona de error, zpe_out debe coincidir con
     //   e_dly[ZPE_DELAY] siempre que e_dly_v[ZPE_DELAY]=1.
     //
@@ -813,12 +828,12 @@ module tb_top_global_all;
     //
     // Propiedades:
     //   Z1) primeras N salidas del frame = 0
-    //   Z2) últimas N salidas = e_dly[ZPE_DELAY] (sl_out_e retrasado 33 ciclos)
+    //   Z2) últimas N salidas = e_dly[ZPE_DELAY] (sl_out_e retrasado 32 ciclos)
     //   Z3) exactamente 1 start por frame
     //   Z4) exactamente 2N muestras válidas por frame
     // ============================================================
 
-    localparam integer ZPE_DELAY = 2*N_HALF;      // 32
+    localparam integer ZPE_DELAY = 2*N_HALF + 1;  // 33
 
     // Shift register para sl_out_e (desplaza cada ciclo de reloj)
     reg signed [WN-1:0] e_dly_I [0:ZPE_DELAY];
@@ -1033,6 +1048,116 @@ module tb_top_global_all;
 
 
     // ============================================================
+    // ============================================================
+    // BLOQUE 11 — XHIST_DELAY Monitor  v2 (NUEVO en v9)
+    // ============================================================
+    //
+    // Verificación del sincronismo entre xhd_out y ffte_out.
+    //
+    // IMPORTANTE — por qué xhd_valid ≠ ffte_valid entre frames:
+    //   HB emite frames CONTINUOS (32 ciclos, sin gaps)
+    //   FFTE tiene gaps entre frames (ZPE tiene fase RECV=16 ciclos)
+    //   → Durante esos 16 ciclos de gap: xhd_valid=1 pero ffte_valid=0
+    //   → Esto es NORMAL y esperado — el GRADIENTE solo opera cuando
+    //     ffte_valid=1, así que esos ciclos extra de xhd se ignoran
+    //
+    // Propiedades verificadas:
+    //
+    //   X1) SINCRONISMO DE START (la más importante):
+    //       Cuando ffte_start=1 → xhd_start debe ser 1 TAMBIÉN
+    //       Si ffte_start=1 pero xhd_start=0 → desfasaje → ajustar DELAY
+    //       (Los arranques de xhd sin ffte son normales — son los frames
+    //        extra del HB continuo, se ignoran)
+    //
+    //   X2) XHD ACTIVO CUANDO FFTE ACTIVO:
+    //       Cuando ffte_valid=1 → xhd_valid debe ser 1
+    //       Si ffte_valid=1 pero xhd_valid=0 → problema grave
+    //       (El caso xhd=1 cuando ffte=0 es normal y no se reporta)
+    //
+    //   X3) CONTEO DE MUESTRAS POR FRAME FFTE:
+    //       Cuando ffte emite un frame, xhd debe emitir exactamente
+    //       NFFT=32 muestras válidas al mismo tiempo
+    //
+    // Cómo interpretar los resultados:
+    //   X1=0, X2=0 → GRADIENTE puede implementarse  ✓
+    //   X1>0       → ajustar DELAY en top_global.v
+    //   X2>0       → problema grave, xhd no alcanza cuando ffte necesita
+    // ============================================================
+
+    integer xhd_total_errs;
+    integer xhd_frames_checked;
+    integer xhd_frame_errs;
+    integer xhd_frame_valid_cnt;
+    integer xhd_x1_errs;
+    integer xhd_x2_errs;
+    integer xhd_x3_errs;
+    reg     xhd_armed;
+
+    initial begin
+        xhd_total_errs=0; xhd_frames_checked=0; xhd_frame_errs=0;
+        xhd_frame_valid_cnt=0;
+        xhd_x1_errs=0; xhd_x2_errs=0; xhd_x3_errs=0;
+        xhd_armed=0;
+    end
+
+    always @(posedge clk_fast) begin : xhd_monitor
+        if (rst) begin
+            xhd_total_errs    <= 0; xhd_frames_checked <= 0;
+            xhd_frame_errs    <= 0; xhd_frame_valid_cnt<= 0;
+            xhd_x1_errs <= 0; xhd_x2_errs <= 0; xhd_x3_errs <= 0;
+            xhd_armed   <= 0;
+        end else begin
+
+            // ---- X1: cuando ffte dispara, xhd debe disparar también ----
+            // (No reportamos cuando xhd dispara sin ffte — eso es normal)
+            if (ffte_out_start && !xhd_out_start) begin
+                xhd_x1_errs    <= xhd_x1_errs + 1;
+                xhd_frame_errs <= xhd_frame_errs + 1;
+                xhd_total_errs <= xhd_total_errs + 1;
+                $display("[XHD] FAIL X1: ffte_start=1 pero xhd_start=0 — DELAY demasiado grande");
+            end
+
+            // ---- X2: cuando ffte es válido, xhd debe ser válido también ----
+            // (No reportamos cuando ffte=0 y xhd=1 — eso es el gap de ZPE, normal)
+            if (ffte_out_valid && !xhd_out_valid) begin
+                xhd_x2_errs    <= xhd_x2_errs + 1;
+                xhd_frame_errs <= xhd_frame_errs + 1;
+                xhd_total_errs <= xhd_total_errs + 1;
+                $display("[XHD] FAIL X2: ffte_valid=1 pero xhd_valid=0 — problema grave");
+            end
+
+            // ---- X3: contar muestras simultáneas (ffte && xhd válidos) ----
+            if (ffte_out_valid) begin
+                xhd_armed <= 1;
+
+                if (ffte_out_start) begin
+                    // Cerrar frame anterior
+                    if (xhd_armed) begin
+                        if (xhd_frame_valid_cnt !== NFFT) begin
+                            xhd_x3_errs    <= xhd_x3_errs + 1;
+                            xhd_total_errs <= xhd_total_errs + 1;
+                            $display("[XHD][FRAME %0d] FAIL X3: muestras_simultáneas=%0d exp=%0d",
+                                xhd_frames_checked, xhd_frame_valid_cnt, NFFT);
+                        end
+                        if (xhd_frame_errs == 0)
+                            $display("[XHD][FRAME %0d] PASS  muestras_sync=%0d  start_sync=OK",
+                                xhd_frames_checked, xhd_frame_valid_cnt);
+                        else
+                            $display("[XHD][FRAME %0d] FAIL  errs=%0d",
+                                xhd_frames_checked, xhd_frame_errs);
+                        xhd_frames_checked <= xhd_frames_checked + 1;
+                    end
+                    xhd_frame_valid_cnt <= 1;
+                    xhd_frame_errs      <= 0;
+                end else begin
+                    xhd_frame_valid_cnt <= xhd_frame_valid_cnt + 1;
+                end
+            end
+
+        end
+    end
+
+    // ============================================================
     // RESUMEN FINAL  — disparado cuando IFFT termina sus 30 frames
     // ============================================================
     always @(posedge clk_fast) begin
@@ -1046,7 +1171,7 @@ module tb_top_global_all;
 
             $display("");
             $display("========================================");
-            $display("[TB] RESUMEN FINAL  v8 (con fft_error)");
+            $display("[TB] RESUMEN FINAL  v9 (con xhist_delay)");
             $display("========================================");
             $display("[OS]   %s  overflow=%0d  period_warns=%0d",
                 (os_overflow||os_warns!=0) ? "FAIL":"PASS", os_overflow, os_warns);
@@ -1085,6 +1210,18 @@ module tb_top_global_all;
                 ffte_total_errs==0 ? "PASS: FFT_ERROR timing OK" : "FAIL");
             $display("  [FFTE] F1(valid_cnt) errs=%0d  F2(start_cnt) errs=%0d  F3(gaps) errs=%0d",
                 ffte_f1_errs, ffte_f2_errs, ffte_f3_errs);
+            $display("[XHD]  frames_checked=%0d  total_errs=%0d  => %s",
+                xhd_frames_checked, xhd_total_errs,
+                xhd_total_errs==0 ? "PASS: xhist_delay sincronizado con ffte_out" : "FAIL — ajustar DELAY");
+            $display("  [XHD] X1(start_sync) errs=%0d  X2(valid_sync) errs=%0d  X3(valid_cnt) errs=%0d",
+                xhd_x1_errs, xhd_x2_errs, xhd_x3_errs);
+            $display("  [XHD] INTERPRETACION:");
+            if (xhd_x1_errs == 0 && xhd_x2_errs == 0)
+                $display("        X1=0 X2=0 => GRADIENTE puede implementarse");
+            else if (xhd_x1_errs > 0)
+                $display("        X1>0 => start desincronizado, ajustar DELAY en xhist_delay.v");
+            else
+                $display("        X2>0 => valid desincronizado, revisar cadena de valid");
             $display("========================================");
             $finish;
         end
