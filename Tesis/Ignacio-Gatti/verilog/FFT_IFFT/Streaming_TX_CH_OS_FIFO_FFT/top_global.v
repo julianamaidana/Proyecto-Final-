@@ -2,17 +2,19 @@
 `default_nettype none
 
 // ============================================================
-// top_global_all  v9  (con xhist_delay)
+// top_global_all  v10  (con gradiente)
 //
 // Cadena completa:
 //   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DN -> SLICER -> ZPE -> FFT_ERROR
-//                              └──── xhist_delay ────┘
+//                              └──── xhist_delay ────┘             │
+//                                                              GRADIENTE
+//                                                         PHI_k = conj(X_hist)*E_k
 //
-// NUEVO en v9:
-//   - Instancia xhist_delay conectado a hb_out_X_old_re/im
-//   - Retrasa X_hist exactamente 118 ciclos para sincronizar con ffte_out
-//   - Puertos nuevos: xhd_out_valid, xhd_out_start, xhd_out_re/im
-//   - VERIFICACION: xhd_out_start debe coincidir con ffte_out_start
+// NUEVO en v10:
+//   - Instancia gradiente conectado a xhd_out y ffte_out
+//   - Control: i_valid=ffte_out_valid, i_start=ffte_out_start
+//   - Latencia: 2 ciclos desde ffte_out hasta grad_out
+//   - Puertos nuevos: grad_out_valid, grad_out_start, grad_out_re/im
 // ============================================================
 
 module top_global_all #(
@@ -119,7 +121,15 @@ module top_global_all #(
     output wire                        xhd_out_valid,  // 1 cuando hay dato válido
     output wire                        xhd_out_start,  // 1 en primera muestra del frame
     output wire signed [NB_INT-1:0]    xhd_out_re,     // X_hist Re retrasado
-    output wire signed [NB_INT-1:0]    xhd_out_im      // X_hist Im retrasado
+    output wire signed [NB_INT-1:0]    xhd_out_im,     // X_hist Im retrasado
+
+    // --- GRADIENTE ---
+    // PHI_k = conj(X_hist) * E_k  — gradiente espectral del PBFDAF-LMS
+    // Latencia 2 ciclos desde ffte_out
+    output wire                        grad_out_valid,  // 1 cuando PHI_k es válido
+    output wire                        grad_out_start,  // 1 en primera muestra del frame
+    output wire signed [NB_INT-1:0]    grad_out_re,     // PHI_k parte real
+    output wire signed [NB_INT-1:0]    grad_out_im      // PHI_k parte imaginaria
 );
 
     // ============================================================
@@ -519,6 +529,40 @@ module top_global_all #(
         .o_start(xhd_out_start),
         .o_xre  (xhd_out_re),
         .o_xim  (xhd_out_im)
+    );
+
+    // ============================================================
+    // GRADIENTE  (u_grad)
+    //
+    //   Calcula PHI_k = conj(X_hist) * E_k
+    //
+    //   Entradas sincronizadas (verificado en BLOQUE 11):
+    //     xhd_out  = X_hist retrasado 118 ciclos
+    //     ffte_out = E_k espectro del error
+    //
+    //   Control: ffte_out_valid/start definen el ritmo.
+    //   Cuando ffte_out_valid=1 → xhd_out_valid=1 siempre.
+    //
+    //   Latencia: 2 ciclos (pipeline de multiplicaciones)
+    //
+    //   Salida: grad_out → entrada de IFFT_GRAD (próximo módulo)
+    // ============================================================
+    gradiente #(
+        .NB_W (NB_INT),
+        .NBF_W(NBF_INT)
+    ) u_grad (
+        .clk    (clk_fast),
+        .rst    (rst),
+        .i_valid(ffte_out_valid),
+        .i_start(ffte_out_start),
+        .i_xre  (xhd_out_re),
+        .i_xim  (xhd_out_im),
+        .i_ere  (ffte_out_I),
+        .i_eim  (ffte_out_Q),
+        .o_valid(grad_out_valid),
+        .o_start(grad_out_start),
+        .o_phi_re(grad_out_re),
+        .o_phi_im(grad_out_im)
     );
 
 endmodule

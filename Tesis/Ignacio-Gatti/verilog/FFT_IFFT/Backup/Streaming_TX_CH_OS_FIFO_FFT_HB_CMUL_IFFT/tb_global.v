@@ -2,21 +2,28 @@
 `default_nettype none
 
 // ============================================================
-// tb_top_global_all  v2  (con history_buffer)
+// tb_top_global_all  v4  (con cmul_pbfdaf, K=1, LMS-ready)
 //
 // Verificación por el Tcl Console de:
 //   [FIFO]  estado y ocupación
 //   [FFT]   frames procesados y start period
 //   [HB]    banco activo, muestra idx, coherencia curr/old
-//   [IFFT]  identidad IFFT(FFT(x)) = x  (dentro de tolerancia)
+//   [CMUL]  Y = W0*X_curr + W1*X_old  con W0=1+0j,W1=0 => Y == X_curr
+//   [IFFT]  identidad IFFT(W*FFT(x)) = x  (tolerancia TOL)
 //
-// Estrategia de chequeo del HB:
-//   Se captura una cola de frames a la salida de la FFT.
-//   Se captura en paralelo X_curr y X_old del HB.
-//   Se verifica que:
-//     1) X_curr == FFT_out del frame actual
-//     2) X_old  == FFT_out del frame (n - K_HIST) => compare con
-//        lo que teníamos en la cola K_HIST frames antes.
+// Cadena verificada:
+//   FFT -> HB -> CMUL_PBFDAF(W0=identidad,W1=0) -> IFFT
+//
+// Estrategia de chequeo del CMUL:
+//   Con W=identidad, la salida del CMUL debe ser igual a
+//   la entrada (X_curr del HB), con 1 ciclo de latencia.
+//   Se captura hb_out_curr un ciclo antes y se compara
+//   con cmul_out en el ciclo siguiente.
+//
+// Latencias acumuladas desde fft_out:
+//   HB   : +1 ciclo  -> hb_out_valid
+//   CMUL : +1 ciclo  -> cmul_out_valid
+//   Total: +2 ciclos desde fft_out hasta cmul_out
 // ============================================================
 
 module tb_top_global_all;
@@ -80,6 +87,10 @@ module tb_top_global_all;
     wire signed [NB_INT-1:0] hb_out_curr_I, hb_out_curr_Q;
     wire signed [NB_INT-1:0] hb_out_old_I,  hb_out_old_Q;
 
+    // --- CMUL ---
+    wire                    cmul_out_valid, cmul_out_start;
+    wire signed [NB_INT-1:0] cmul_out_I, cmul_out_Q;
+
     wire                    ifft_out_valid, ifft_out_start;
     wire signed [WN-1:0]    ifft_out_I, ifft_out_Q;
 
@@ -133,6 +144,11 @@ module tb_top_global_all;
         .hb_out_curr_Q (hb_out_curr_Q),
         .hb_out_old_I  (hb_out_old_I),
         .hb_out_old_Q  (hb_out_old_Q),
+
+        .cmul_out_valid(cmul_out_valid),
+        .cmul_out_start(cmul_out_start),
+        .cmul_out_I    (cmul_out_I),
+        .cmul_out_Q    (cmul_out_Q),
 
         .ifft_out_valid(ifft_out_valid),
         .ifft_out_start(ifft_out_start),
@@ -400,7 +416,96 @@ module tb_top_global_all;
     end
 
     // ============================================================
-    // ---- BLOQUE 5: IFFT identidad check ----
+    // ---- BLOQUE 5: CMUL Monitor ----
+    //
+    //  Con W = identidad (1+0j): cmul_out debe ser igual a hb_out_curr
+    //  con exactamente 1 ciclo de latencia.
+    //
+    //  Estrategia:
+    //    - Registrar hb_out_curr un ciclo (hb_prev_*) 
+    //    - En el ciclo siguiente, cuando cmul_out_valid=1,
+    //      comparar cmul_out con hb_prev
+    //    - Tolerancia TOL (misma que IFFT): el complex_mult tiene
+    //      sat_trunc round-to-even, puede haber 1 LSB de diferencia.
+    //
+    //  Nota: el start del CMUL se verifica por separado para
+    //  confirmar que la alineación de frames no se rompió.
+    // ============================================================
+    reg signed [NB_INT-1:0] hb_prev_I, hb_prev_Q;
+    reg                      hb_prev_valid, hb_prev_start;
+
+    integer cmul_total_errs;
+    integer cmul_frames_checked;
+    integer cmul_frame_errs;
+    integer cmul_start_misalign;
+
+    integer dIcm, dQcm;
+
+    initial begin
+        hb_prev_I       = 0; hb_prev_Q       = 0;
+        hb_prev_valid   = 0; hb_prev_start   = 0;
+        cmul_total_errs     = 0;
+        cmul_frames_checked = 0;
+        cmul_frame_errs     = 0;
+        cmul_start_misalign = 0;
+    end
+
+    always @(posedge clk_fast) begin : cmul_monitor
+        if (rst) begin
+            hb_prev_I           <= 0; hb_prev_Q       <= 0;
+            hb_prev_valid       <= 0; hb_prev_start   <= 0;
+            cmul_total_errs     <= 0;
+            cmul_frames_checked <= 0;
+            cmul_frame_errs     <= 0;
+            cmul_start_misalign <= 0;
+        end else begin
+            // Registrar hb_out un ciclo hacia adelante
+            hb_prev_valid <= hb_out_valid;
+            hb_prev_start <= hb_out_start;
+            hb_prev_I     <= hb_out_curr_I;
+            hb_prev_Q     <= hb_out_curr_Q;
+
+            // Cuando el CMUL produce salida, comparar con el HB del ciclo anterior
+            if (cmul_out_valid) begin
+
+                // Chequeo de alineación de start
+                if (cmul_out_start && !hb_prev_start) begin
+                    cmul_start_misalign <= cmul_start_misalign + 1;
+                    $display("[CMUL][WARN] start desalineado en frame %0d",
+                              cmul_frames_checked);
+                end
+
+                // Reporte de frame anterior al detectar nuevo start
+                if (cmul_out_start) begin
+                    if (cmul_frames_checked > 0) begin
+                        if (cmul_frame_errs == 0)
+                            $display("[CMUL][FRAME %0d] PASS  errs=0",
+                                      cmul_frames_checked-1);
+                        else
+                            $display("[CMUL][FRAME %0d] FAIL  errs=%0d",
+                                      cmul_frames_checked-1, cmul_frame_errs);
+                    end
+                    cmul_frame_errs     <= 0;
+                    cmul_frames_checked <= cmul_frames_checked + 1;
+                end
+
+                // Comparar: con W=identidad, cmul_out == hb_prev (dentro de TOL)
+                if (hb_prev_valid) begin
+                    dIcm = $signed(cmul_out_I) - $signed(hb_prev_I);
+                    dQcm = $signed(cmul_out_Q) - $signed(hb_prev_Q);
+                    if (iabs(dIcm) > TOL || iabs(dQcm) > TOL) begin
+                        cmul_frame_errs <= cmul_frame_errs + 1;
+                        cmul_total_errs <= cmul_total_errs + 1;
+                        $display("[CMUL][ERR] frame=%0d dI=%0d dQ=%0d",
+                                  cmul_frames_checked-1, dIcm, dQcm);
+                    end
+                end
+            end
+        end
+    end
+
+    // ============================================================
+    // ---- BLOQUE 6: IFFT identidad check ----
     //  Compara IFFT(FFT(x)) con la entrada original.
     //  Se usa la cola de ENTRADA a la FFT (fft_in_I/Q) para cotejar.
     //  Nota: ahora hay 1 ciclo extra de latencia del HB, por lo que
@@ -531,9 +636,13 @@ module tb_top_global_all;
                                  hb_total_curr_errs, hb_total_old_errs,
                                  (hb_total_curr_errs==0 && hb_total_old_errs==0) ? "PASS" : "FAIL");
 
+                        $display("[CMUL] frames_checked=%0d  total_errs=%0d  misalign=%0d  => %s",
+                                 cmul_frames_checked, cmul_total_errs, cmul_start_misalign,
+                                 (cmul_total_errs==0 && cmul_start_misalign==0) ? "PASS: Y=W*X=X (W=identidad)" : "FAIL");
+
                         $display("[IFFT] checked_frames=%0d  total_errs=%0d  tol=%0d  => %s",
                                  FRAMES_TO_CHECK, total_errs, TOL,
-                                 (total_errs == 0) ? "PASS: IFFT(FFT(x))=x" : "FAIL");
+                                 (total_errs == 0) ? "PASS: IFFT(W*FFT(x))=x" : "FAIL");
 
                         $display("========================================");
                         $finish;

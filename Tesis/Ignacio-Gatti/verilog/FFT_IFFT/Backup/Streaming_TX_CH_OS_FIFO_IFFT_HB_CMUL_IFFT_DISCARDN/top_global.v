@@ -2,25 +2,23 @@
 `default_nettype none
 
 // ============================================================
-// top_global_all  v2  (con history_buffer)
+// top_global_all  v5  (con discard_n)
 //
 // Cadena completa:
 //   TX(clk_low) -> CH(clk_low)
 //   -> OS_BUFFER(clk_low -> clk_fast)
 //   -> FIFO(clk_fast)
-//   -> FFT(clk_fast)           [NB_INT=17 bits salida]
-//   -> HISTORY_BUFFER(clk_fast)[almacena K frames pasados de la FFT]
-//   -> IFFT(clk_fast)          [recibe X_curr del history buffer]
+//   -> FFT(clk_fast)           [NB_INT=17 bits]
+//   -> HISTORY_BUFFER(clk_fast)
+//   -> CMUL_PBFDAF(clk_fast)   [Y = W0·X_curr + W1·X_old]
+//   -> IFFT(clk_fast)          [WN=9 bits]
+//   -> DISCARD_N(clk_fast)     [pasa solo muestras N..2N-1]
 //
-// Dominio de relojes:
-//   clk_low  = clk_fast / 2  (TX, CH, valid de OS)
-//   clk_fast                 (OS salida, FIFO, FFT, HB, IFFT)
-//
-// Parámetro K_HIST:
-//   Cantidad de bloques pasados conservados en el history_buffer.
-//   Para PBFDAF con 1 bloque anterior usá K_HIST=1 (default).
-//   Aumentar K_HIST agrega latencia (K ciclos de frame = K*NFFT clocks)
-//   pero NO cambia el throughput: el streaming se mantiene continuo.
+// NUEVO en v5:
+//   - Instancia discard_n después de la IFFT.
+//   - Puertos de salida nuevos: dn_out_valid, dn_out_start,
+//     dn_out_I, dn_out_Q  (y_blk: las N muestras útiles del frame)
+//   - La salida IFFT cruda sigue expuesta como ifft_out_* para debug.
 // ============================================================
 
 module top_global_all #(
@@ -35,11 +33,7 @@ module top_global_all #(
     parameter integer REORDER_BITREV = 1,
 
     parameter integer CH_GAIN_SH = 0,
-
-    // ============================================================
-    // History Buffer: bloques pasados a conservar
-    // ============================================================
-    parameter integer K_HIST    = 1
+    parameter integer K_HIST     = 1
 )(
     input  wire                 clk_fast,
     input  wire                 rst,
@@ -79,21 +73,31 @@ module top_global_all #(
     output wire signed [NB_INT-1:0] fft_out_I,
     output wire signed [NB_INT-1:0] fft_out_Q,
 
-    // --- History Buffer: frame actual (pasado a IFFT) ---
+    // --- History Buffer ---
     output wire                     hb_out_valid,
     output wire                     hb_out_start,
     output wire signed [NB_INT-1:0] hb_out_curr_I,
     output wire signed [NB_INT-1:0] hb_out_curr_Q,
-
-    // --- History Buffer: frame pasado (para ecualizador futuro) ---
     output wire signed [NB_INT-1:0] hb_out_old_I,
     output wire signed [NB_INT-1:0] hb_out_old_Q,
 
-    // --- Salida IFFT ---
+    // --- CMUL ---
+    output wire                     cmul_out_valid,
+    output wire                     cmul_out_start,
+    output wire signed [NB_INT-1:0] cmul_out_I,
+    output wire signed [NB_INT-1:0] cmul_out_Q,
+
+    // --- IFFT (cruda, para debug) ---
     output wire                 ifft_out_valid,
     output wire                 ifft_out_start,
     output wire signed [WN-1:0] ifft_out_I,
-    output wire signed [WN-1:0] ifft_out_Q
+    output wire signed [WN-1:0] ifft_out_Q,
+
+    // --- DISCARD_N: y_blk (muestras N..2N-1 del frame) ---
+    output wire                 dn_out_valid,   // 1 solo durante N muestras útiles
+    output wire                 dn_out_start,   // 1 en la primera muestra útil
+    output wire signed [WN-1:0] dn_out_I,       // y_blk Re
+    output wire signed [WN-1:0] dn_out_Q        // y_blk Im
 );
 
     // ============================================================
@@ -150,12 +154,11 @@ module top_global_all #(
     // ============================================================
     function signed [WN-1:0] sat_wn;
         input signed [WN+7:0] x;
-        reg signed [WN-1:0] maxv;
-        reg signed [WN-1:0] minv;
+        reg signed [WN-1:0] maxv, minv;
         begin
             maxv = {1'b0, {(WN-1){1'b1}}};
             minv = {1'b1, {(WN-1){1'b0}}};
-            if (x > $signed(maxv))      sat_wn = maxv;
+            if      (x > $signed(maxv)) sat_wn = maxv;
             else if (x < $signed(minv)) sat_wn = minv;
             else                        sat_wn = x[WN-1:0];
         end
@@ -196,7 +199,6 @@ module top_global_all #(
 
     // ============================================================
     // FIFO  (clk_fast)
-    //   Empaqueta {start, I, Q} en un único word
     // ============================================================
     wire [2*WN:0] fifo_din  = {os_start, os_I, os_Q};
     wire [2*WN:0] fifo_dout;
@@ -219,7 +221,6 @@ module top_global_all #(
         .data_count(fifo_count)
     );
 
-    // Valid alineado con fifo_dout (latencia 1 ciclo de FIFO)
     wire rd_fire = fifo_rd_en && !fifo_empty;
     reg  rd_fire_q;
     always @(posedge clk_fast) begin
@@ -234,7 +235,6 @@ module top_global_all #(
 
     // ============================================================
     // FFT  (clk_fast)
-    //   Salida: NB_INT bits (ancho interno, punto fijo NBF_INT)
     // ============================================================
     wire fft_rdy;
 
@@ -262,20 +262,6 @@ module top_global_all #(
 
     // ============================================================
     // HISTORY BUFFER  (clk_fast)
-    //
-    //   Entrada: salida directa de la FFT
-    //   Salida:
-    //     o_X_curr -> frame actual  -> alimenta IFFT (bypass limpio)
-    //     o_X_old  -> frame n-K_HIST -> disponible para ecualizador
-    //
-    //   Latencia introducida: 1 ciclo de registro (lectura RAM sync)
-    //   El o_valid/o_start salen 1 ciclo después de fft_out_valid/start.
-    //
-    //   IMPORTANTE para PBFDAF:
-    //   En esta etapa el history buffer es pasado a través (pass-through)
-    //   hacia la IFFT usando X_curr. X_old queda expuesto como puerto
-    //   de salida del top para que la próxima etapa (multiplicador de
-    //   pesos, filtro frecuencial) lo use sin modificar este módulo.
     // ============================================================
     wire [$clog2(K_HIST+1)-1:0] hb_wr_bank_dbg;
     wire [$clog2(NFFT)-1:0]     hb_samp_dbg;
@@ -302,11 +288,40 @@ module top_global_all #(
     );
 
     // ============================================================
+    // CMUL_PBFDAF  (clk_fast)
+    //   Y[k] = W0[k]·X_curr[k] + W1[k]·X_old[k]
+    //   Inicialización: W0=identidad, W1=0  →  Y = X_curr
+    // ============================================================
+    wire [$clog2(NFFT)-1:0] cmul_samp_dbg;
+
+    cmul_pbfdaf #(
+        .NB_W (NB_INT),
+        .NBF_W(NBF_INT),
+        .NFFT (NFFT)
+    ) u_cmul (
+        .clk       (clk_fast),
+        .rst       (rst),
+        .i_valid   (hb_out_valid),
+        .i_start   (hb_out_start),
+        .i_X0_re   (hb_out_curr_I),
+        .i_X0_im   (hb_out_curr_Q),
+        .i_X1_re   (hb_out_old_I),
+        .i_X1_im   (hb_out_old_Q),
+        // Puerto LMS inactivo hasta integrar UPDATE_LMS
+        .i_we      (1'b0),
+        .i_wk      ({$clog2(NFFT){1'b0}}),
+        .i_wsel    (1'b0),
+        .i_W_re    ({NB_INT{1'b0}}),
+        .i_W_im    ({NB_INT{1'b0}}),
+        .o_valid   (cmul_out_valid),
+        .o_start   (cmul_out_start),
+        .o_yI      (cmul_out_I),
+        .o_yQ      (cmul_out_Q),
+        .o_samp_idx(cmul_samp_dbg)
+    );
+
+    // ============================================================
     // IFFT  (clk_fast)
-    //   Recibe X_curr del history buffer.
-    //   Cuando el ecualizador esté integrado, la señal que entra
-    //   aquí será la salida del filtro frecuencial (W*X), no X_curr.
-    //   Por ahora: IFFT(FFT(x)) = x  (identidad).
     // ============================================================
     wire ifft_rdy;
 
@@ -320,16 +335,45 @@ module top_global_all #(
     ) u_ifft (
         .i_clk    (clk_fast),
         .i_rst    (rst),
-        .i_valid  (hb_out_valid),    // <-- viene del HB, no directo de FFT
-        .i_start  (hb_out_start),    // <-- viene del HB
-        .i_xI     (hb_out_curr_I),   // <-- X_curr del HB
-        .i_xQ     (hb_out_curr_Q),
+        .i_valid  (cmul_out_valid),
+        .i_start  (cmul_out_start),
+        .i_xI     (cmul_out_I),
+        .i_xQ     (cmul_out_Q),
         .i_inverse(1'b1),
         .o_in_ready(ifft_rdy),
         .o_start  (ifft_out_start),
         .o_valid  (ifft_out_valid),
         .o_yI     (ifft_out_I),
         .o_yQ     (ifft_out_Q)
+    );
+
+    // ============================================================
+    // DISCARD_N  (clk_fast)
+    //
+    //   Recibe el stream IFFT de NFFT=32 muestras por frame.
+    //   Descarta los primeros N=16 (transitorio overlap-save).
+    //   Emite los últimos N=16 como y_blk: la salida útil del filtro.
+    //
+    //   Latencia añadida: 1 ciclo (registro de salida).
+    //
+    //   Próximo en cadena: SLICER_QPSK  (dn_out_* → slicer)
+    // ============================================================
+    discard_n #(
+        .NB_W (WN),
+        .NBF_W(7),
+        .NFFT (NFFT)
+    ) u_dn (
+        .clk       (clk_fast),
+        .rst       (rst),
+        .i_valid   (ifft_out_valid),
+        .i_start   (ifft_out_start),
+        .i_yI      (ifft_out_I),
+        .i_yQ      (ifft_out_Q),
+        .o_valid   (dn_out_valid),
+        .o_start   (dn_out_start),
+        .o_yI      (dn_out_I),
+        .o_yQ      (dn_out_Q),
+        .o_samp_idx(/* debug no expuesto */)
     );
 
 endmodule
