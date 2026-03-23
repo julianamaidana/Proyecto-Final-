@@ -2,7 +2,7 @@
 `default_nettype none
 
 // ============================================================
-// top_global_all  v14 (loop LMS cerrado: fft_pesos → cmul_pbfdaf)
+// top_global_all  v13 (con ZERO_PAD_PESOS + FFT_PESOS)
 //
 // Cadena completa:
 //   TX -> CH -> OS -> FIFO -> FFT -> HB -> CMUL -> IFFT -> DN -> SLICER -> ZPE -> FFT_ERROR
@@ -22,10 +22,6 @@
 //   - Instancia zero_pad_pesos: [w|0..0] → 32 muestras para FFT
 //   - Instancia fft_pesos (fft_ifft_stream reutilizado): W_k = FFT([w|0])
 //   - Puertos nuevos: zpp_out_*, fft_w_*
-// NUEVO en v14:
-//   - fft_pesos conectado al puerto de escritura del cmul_pbfdaf
-//   - Contador wr_cnt convierte fft_w_valid/start → i_we/i_wk
-//   - Loop LMS completamente cerrado
 // ============================================================
 
 module top_global_all #(
@@ -368,34 +364,9 @@ module top_global_all #(
     );
 
     // ============================================================
-    // Contador wr_cnt para escribir W_new en cmul_pbfdaf
-    //
-    //   fft_pesos emite fft_w_valid/start/I/Q (32 bins/frame).
-    //   El CMUL tiene un puerto de escritura i_we/i_wk/i_W_re/im.
-    //   wr_cnt convierte el streaming de fft_pesos en direcciones:
-    //     fft_w_start → wr_cnt=0, luego incrementa con fft_w_valid.
-    //   i_wsel=0 → escribe siempre en W0 (única partición K_HIST=1).
-    // ============================================================
-    reg  [$clog2(NFFT)-1:0] cmul_wr_cnt;
-    wire [$clog2(NFFT)-1:0] cmul_eff_wk = (fft_w_valid && fft_w_start)
-                                          ? {$clog2(NFFT){1'b0}}
-                                          : cmul_wr_cnt;
-
-    always @(posedge clk_fast) begin
-        if (rst) begin
-            cmul_wr_cnt <= {$clog2(NFFT){1'b0}};
-        end else if (fft_w_valid) begin
-            cmul_wr_cnt <= (cmul_eff_wk == (NFFT-1))
-                         ? {$clog2(NFFT){1'b0}}
-                         : (cmul_eff_wk + 1'b1);
-        end
-    end
-
-    // ============================================================
     // CMUL_PBFDAF  (clk_fast)
     //   Y[k] = W0[k]·X_curr[k] + W1[k]·X_old[k]
     //   Inicialización: W0=identidad, W1=0  →  Y = X_curr
-    //   Desde v14: W0 se actualiza frame a frame desde fft_pesos
     // ============================================================
     wire [$clog2(NFFT)-1:0] cmul_samp_dbg;
 
@@ -412,12 +383,12 @@ module top_global_all #(
         .i_X0_im   (hb_out_curr_Q),
         .i_X1_re   (hb_out_old_I),
         .i_X1_im   (hb_out_old_Q),
-        // Puerto LMS activo — W0[k] actualizado por fft_pesos
-        .i_we      (fft_w_valid),
-        .i_wk      (cmul_eff_wk),
-        .i_wsel    (1'b0),          // K_HIST=1: solo W0
-        .i_W_re    (fft_w_I),
-        .i_W_im    (fft_w_Q),
+        // Puerto LMS inactivo hasta integrar UPDATE_LMS
+        .i_we      (1'b0),
+        .i_wk      ({$clog2(NFFT){1'b0}}),
+        .i_wsel    (1'b0),
+        .i_W_re    ({NB_INT{1'b0}}),
+        .i_W_im    ({NB_INT{1'b0}}),
         .o_valid   (cmul_out_valid),
         .o_start   (cmul_out_start),
         .o_yI      (cmul_out_I),
