@@ -16,10 +16,10 @@
       <Cursor1Time time="11.005000 us"></Cursor1Time>
    </zoom_setting>
    <column_width_setting>
-      <NameColumnWidth column_width="128"></NameColumnWidth>
+      <NameColumnWidth column_width="120"></NameColumnWidth>
       <ValueColumnWidth column_width="58"></ValueColumnWidth>
    </column_width_setting>
-   <WVObjectSize size="124" />
+   <WVObjectSize size="185" />
    <wvobject type="divider" fp_name="divider212">
       <obj_property name="label">Settings</obj_property>
       <obj_property name="DisplayName">label</obj_property>
@@ -549,5 +549,258 @@
    <wvobject fp_name="/tb_top_global_all/dut/grad_out_im" type="array">
       <obj_property name="ElementShortName">grad_out_im[16:0]</obj_property>
       <obj_property name="ObjectShortName">grad_out_im[16:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider745">
+      <obj_property name="label">IFFT GRADIENTE</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/i_xI" type="array">
+      <obj_property name="ElementShortName">i_xI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/i_xQ" type="array">
+      <obj_property name="ElementShortName">i_xQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/i_inverse" type="logic">
+      <obj_property name="ElementShortName">i_inverse</obj_property>
+      <obj_property name="ObjectShortName">i_inverse</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ifft_grad_valid" type="logic">
+      <obj_property name="ElementShortName">ifft_grad_valid</obj_property>
+      <obj_property name="ObjectShortName">ifft_grad_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ifft_grad_start" type="logic">
+      <obj_property name="ElementShortName">ifft_grad_start</obj_property>
+      <obj_property name="ObjectShortName">ifft_grad_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/o_in_ready" type="logic">
+      <obj_property name="ElementShortName">o_in_ready</obj_property>
+      <obj_property name="ObjectShortName">o_in_ready</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/o_yI" type="array">
+      <obj_property name="ElementShortName">o_yI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_ifft_grad/o_yQ" type="array">
+      <obj_property name="ElementShortName">o_yQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider746">
+      <obj_property name="label">PROYECCION N</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/i_valid" type="logic">
+      <obj_property name="ElementShortName">i_valid</obj_property>
+      <obj_property name="ObjectShortName">i_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/i_start" type="logic">
+      <obj_property name="ElementShortName">i_start</obj_property>
+      <obj_property name="ObjectShortName">i_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/i_yI" type="array">
+      <obj_property name="ElementShortName">i_yI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_yI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/i_yQ" type="array">
+      <obj_property name="ElementShortName">i_yQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_yQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/o_yI" type="array">
+      <obj_property name="ElementShortName">o_yI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_proy/o_yQ" type="array">
+      <obj_property name="ElementShortName">o_yQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider747">
+      <obj_property name="label">UPDATE LMS</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/i_gI" type="array">
+      <obj_property name="ElementShortName">i_gI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_gI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/i_gQ" type="array">
+      <obj_property name="ElementShortName">i_gQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_gQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/lms_w_valid" type="logic">
+      <obj_property name="ElementShortName">lms_w_valid</obj_property>
+      <obj_property name="ObjectShortName">lms_w_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/lms_w_start" type="logic">
+      <obj_property name="ElementShortName">lms_w_start</obj_property>
+      <obj_property name="ObjectShortName">lms_w_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/o_wI" type="array">
+      <obj_property name="ElementShortName">o_wI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_wI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/o_wQ" type="array">
+      <obj_property name="ElementShortName">o_wQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_wQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/o_switched" type="logic">
+      <obj_property name="ElementShortName">o_switched</obj_property>
+      <obj_property name="ObjectShortName">o_switched</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_lms/o_frame_cnt" type="array">
+      <obj_property name="ElementShortName">o_frame_cnt[7:0]</obj_property>
+      <obj_property name="ObjectShortName">o_frame_cnt[7:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider748">
+      <obj_property name="label">ZERO_PAD_W</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/zpp_out_valid" type="logic">
+      <obj_property name="ElementShortName">zpp_out_valid</obj_property>
+      <obj_property name="ObjectShortName">zpp_out_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/zpp_out_start" type="logic">
+      <obj_property name="ElementShortName">zpp_out_start</obj_property>
+      <obj_property name="ObjectShortName">zpp_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpp/i_wI" type="array">
+      <obj_property name="ElementShortName">i_wI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_wI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpp/i_wQ" type="array">
+      <obj_property name="ElementShortName">i_wQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_wQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpp/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpp/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpp/o_wI" type="array">
+      <obj_property name="ElementShortName">o_wI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_wI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpp/o_wQ" type="array">
+      <obj_property name="ElementShortName">o_wQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_wQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider750">
+      <obj_property name="label">FFT PESOS</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/i_xI" type="array">
+      <obj_property name="ElementShortName">i_xI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/i_xQ" type="array">
+      <obj_property name="ElementShortName">i_xQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/fft_w_valid" type="logic">
+      <obj_property name="ElementShortName">fft_w_valid</obj_property>
+      <obj_property name="ObjectShortName">fft_w_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/fft_w_start" type="logic">
+      <obj_property name="ElementShortName">fft_w_start</obj_property>
+      <obj_property name="ObjectShortName">fft_w_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/i_inverse" type="logic">
+      <obj_property name="ElementShortName">i_inverse</obj_property>
+      <obj_property name="ObjectShortName">i_inverse</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/o_in_ready" type="logic">
+      <obj_property name="ElementShortName">o_in_ready</obj_property>
+      <obj_property name="ObjectShortName">o_in_ready</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/o_yI" type="array">
+      <obj_property name="ElementShortName">o_yI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yI[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_pesos/o_yQ" type="array">
+      <obj_property name="ElementShortName">o_yQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yQ[16:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider1322">
+      <obj_property name="label">CMUL_TablaW _ loop close</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/hb_out_curr_I" type="array">
+      <obj_property name="ElementShortName">hb_out_curr_I[16:0]</obj_property>
+      <obj_property name="ObjectShortName">hb_out_curr_I[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/hb_out_curr_Q" type="array">
+      <obj_property name="ElementShortName">hb_out_curr_Q[16:0]</obj_property>
+      <obj_property name="ObjectShortName">hb_out_curr_Q[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/hb_out_old_I" type="array">
+      <obj_property name="ElementShortName">hb_out_old_I[16:0]</obj_property>
+      <obj_property name="ObjectShortName">hb_out_old_I[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/hb_out_old_Q" type="array">
+      <obj_property name="ElementShortName">hb_out_old_Q[16:0]</obj_property>
+      <obj_property name="ObjectShortName">hb_out_old_Q[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/fft_w_I" type="array">
+      <obj_property name="ElementShortName">fft_w_I[16:0]</obj_property>
+      <obj_property name="ObjectShortName">fft_w_I[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/fft_w_Q" type="array">
+      <obj_property name="ElementShortName">fft_w_Q[16:0]</obj_property>
+      <obj_property name="ObjectShortName">fft_w_Q[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/cmul_out_I" type="array">
+      <obj_property name="ElementShortName">cmul_out_I[16:0]</obj_property>
+      <obj_property name="ObjectShortName">cmul_out_I[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/cmul_out_Q" type="array">
+      <obj_property name="ElementShortName">cmul_out_Q[16:0]</obj_property>
+      <obj_property name="ObjectShortName">cmul_out_Q[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sl_out_e_I" type="array">
+      <obj_property name="ElementShortName">sl_out_e_I[8:0]</obj_property>
+      <obj_property name="ObjectShortName">sl_out_e_I[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+      <obj_property name="CellHeight">100</obj_property>
+      <obj_property name="AnalogYRangeType">ANALOG_YRANGETYPE_AUTO</obj_property>
+      <obj_property name="AnalogYRangeMin">0.000000</obj_property>
+      <obj_property name="AnalogYRRangeMax">0.000000</obj_property>
+      <obj_property name="AnalogInterpolation">ANALOG_INTERPOLATION_HOLD</obj_property>
+      <obj_property name="AnalogOffscale">ANALOG_OFFSCALE_HIDE</obj_property>
+      <obj_property name="AnalogHorizLine">0.000000</obj_property>
+      <obj_property name="WaveformStyle">STYLE_ANALOG</obj_property>
    </wvobject>
 </wave_config>
