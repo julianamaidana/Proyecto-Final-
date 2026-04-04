@@ -75,7 +75,7 @@ module update_lms #(
     integer ii;
     initial begin
         for (ii = 0; ii < N; ii = ii + 1) begin
-            w_re[ii] = {NB_W{1'b0}};
+            w_re[ii] = (ii == 0) ? 17'sd1024 : {NB_W{1'b0}};
             w_im[ii] = {NB_W{1'b0}};
         end
     end
@@ -101,10 +101,18 @@ module update_lms #(
     // Vivado sintetiza esto como un mux, no como shift variable
     // Costo: ~17 LUT2
     // ============================================================
-    wire signed [NB_W-1:0] mu_gI_fast = $signed(i_gI) >>> MU_SH_INIT;
-    wire signed [NB_W-1:0] mu_gI_slow = $signed(i_gI) >>> MU_SH_FINAL;
-    wire signed [NB_W-1:0] mu_gQ_fast = $signed(i_gQ) >>> MU_SH_INIT;
-    wire signed [NB_W-1:0] mu_gQ_slow = $signed(i_gQ) >>> MU_SH_FINAL;
+    // Truncacion hacia cero (sin sesgo):
+    //   +612 >>> 11 = 0   (igual que floor, OK)
+    //   -612 >>> 11 = -1  (floor), corregido a 0 con truncation-toward-zero
+    //   Implementacion: si negativo, negar → shift → negar
+    wire signed [NB_W-1:0] mu_gI_fast = i_gI[NB_W-1] ?
+        -($signed(-i_gI) >>> MU_SH_INIT) : ($signed(i_gI) >>> MU_SH_INIT);
+    wire signed [NB_W-1:0] mu_gI_slow = i_gI[NB_W-1] ?
+        -($signed(-i_gI) >>> MU_SH_FINAL) : ($signed(i_gI) >>> MU_SH_FINAL);
+    wire signed [NB_W-1:0] mu_gQ_fast = i_gQ[NB_W-1] ?
+        -($signed(-i_gQ) >>> MU_SH_INIT) : ($signed(i_gQ) >>> MU_SH_INIT);
+    wire signed [NB_W-1:0] mu_gQ_slow = i_gQ[NB_W-1] ?
+        -($signed(-i_gQ) >>> MU_SH_FINAL) : ($signed(i_gQ) >>> MU_SH_FINAL);
 
     wire signed [NB_W-1:0] mu_gI = switched ? mu_gI_slow : mu_gI_fast;
     wire signed [NB_W-1:0] mu_gQ = switched ? mu_gQ_slow : mu_gQ_fast;
@@ -113,9 +121,9 @@ module update_lms #(
     // Suma con 1 bit de guardia para detectar overflow
     // ============================================================
     wire signed [NB_W:0] sum_re = {w_re[eff_samp][NB_W-1], w_re[eff_samp]}
-                                + {mu_gI[NB_W-1],           mu_gI};
+                                - {mu_gI[NB_W-1],           mu_gI};
     wire signed [NB_W:0] sum_im = {w_im[eff_samp][NB_W-1], w_im[eff_samp]}
-                                + {mu_gQ[NB_W-1],           mu_gQ};
+                                - {mu_gQ[NB_W-1],           mu_gQ};
 
     // Overflow si bit de guardia != bit de signo del resultado
     wire ovf_re = (sum_re[NB_W] != sum_re[NB_W-1]);
@@ -153,7 +161,11 @@ module update_lms #(
             o_wQ    <= new_wQ;
             o_start <= i_start;
             o_valid <= 1'b1;
-
+            // Debug
+            if (eff_samp < 4) begin
+                $display("[LMS] samp=%0d  grad=(%0d,%0d)  mu_g=(%0d,%0d)  w_new=(%0d,%0d)",
+                        eff_samp, i_gI, i_gQ, mu_gI, mu_gQ, new_wI, new_wQ);
+            end
             // Avanzar contador de muestras
             samp <= (eff_samp == N1) ? {KW{1'b0}} : (eff_samp + 1'b1);
 

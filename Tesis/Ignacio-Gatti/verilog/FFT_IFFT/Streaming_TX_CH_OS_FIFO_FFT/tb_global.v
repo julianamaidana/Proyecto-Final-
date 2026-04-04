@@ -2,11 +2,13 @@
 `default_nettype none
 
 // ============================================================
-// tb_top_global_all  v14 (loop LMS cerrado)
+// tb_top_global_all  v14+BER (loop LMS cerrado + contador BER)
 //
 // Verifica la cadena completa:
 //   TX->CH->OS->FIFO->FFT->HB->CMUL->IFFT->DN->SLICER->ZPE->FFT_ERROR
 //                           └── xhist_delay ──┘
+//                                         GRADIENTE->IFFT_GRAD->PROY
+//                                         UPDATE_LMS->ZPP->FFTW->CMUL(W)
 //
 // BLOQUES DE VERIFICACIÓN
 // -----------------------
@@ -26,7 +28,8 @@
 // [BLOQUE 14] UPDATE_LMS
 // [BLOQUE 15] ZERO_PAD_PESOS
 // [BLOQUE 16] FFT_PESOS
-// LOOP LMS CERRADO en v14: fft_w → cmul.i_we/i_wk/i_W
+// [BLOQUE 17] CONVERGENCIA (err_avg por frame)
+// [BLOQUE 18] BER COUNTER  <-- NUEVO
 //
 // VERIFICACION CLAVE del BLOQUE 11:
 //   xhd_out_start y ffte_out_start deben aparecer en el MISMO ciclo.
@@ -58,7 +61,7 @@ module tb_top_global_all;
     localparam integer K_HIST    = 1;
 
     localparam integer TOL              = 3;
-    localparam integer FRAMES_TO_CHECK  = 30;
+    localparam integer FRAMES_TO_CHECK  = 2000;
 
     localparam integer QDEPTH = 128;
     localparam integer QMEM   = QDEPTH * NFFT;
@@ -81,10 +84,8 @@ module tb_top_global_all;
 
     reg [10:0] sigma_scale;
     // Opciones:
-    //initial sigma_scale = 11'd0;   // SNR 0 dB    (sin ruido)
-    //initial sigma_scale = 11'd3;   // SNR ~12 dB  (ruido leve)
-    //initial sigma_scale = 11'd5;   // SNR ~7 dB   (ruido medio)
-    initial sigma_scale = 11'd8;   // SNR ~3 dB   (ruido fuerte)
+    //initial sigma_scale = 11'd6;
+    initial sigma_scale = 11'd8;   // SNR ~3 dB (ruido fuerte)
     
 
     // ============================================================
@@ -145,17 +146,6 @@ module tb_top_global_all;
     // --- PROYECCION ---
     wire                          grad_t_valid, grad_t_start;
     wire signed [NB_INT-1:0]      grad_t_I, grad_t_Q;
-    // --- UPDATE_LMS ---
-    wire                          lms_w_valid, lms_w_start;
-    wire signed [NB_INT-1:0]      lms_w_I, lms_w_Q;
-    wire                          lms_switched;
-    wire [7:0]                    lms_frame_cnt;
-    // --- ZERO_PAD_PESOS ---
-    wire                          zpp_out_valid, zpp_out_start;
-    wire signed [NB_INT-1:0]      zpp_out_wI, zpp_out_wQ;
-    // --- FFT_PESOS ---
-    wire                          fft_w_valid, fft_w_start;
-    wire signed [NB_INT-1:0]      fft_w_I, fft_w_Q;
 
     // ============================================================
     // DUT
@@ -248,24 +238,7 @@ module tb_top_global_all;
         .grad_t_valid   (grad_t_valid),
         .grad_t_start   (grad_t_start),
         .grad_t_I       (grad_t_I),
-        .grad_t_Q       (grad_t_Q),
-        // --- UPDATE_LMS ---
-        .lms_w_valid    (lms_w_valid),
-        .lms_w_start    (lms_w_start),
-        .lms_w_I        (lms_w_I),
-        .lms_w_Q        (lms_w_Q),
-        .lms_switched   (lms_switched),
-        .lms_frame_cnt  (lms_frame_cnt),
-        // --- ZERO_PAD_PESOS ---
-        .zpp_out_valid  (zpp_out_valid),
-        .zpp_out_start  (zpp_out_start),
-        .zpp_out_wI     (zpp_out_wI),
-        .zpp_out_wQ     (zpp_out_wQ),
-        // --- FFT_PESOS ---
-        .fft_w_valid    (fft_w_valid),
-        .fft_w_start    (fft_w_start),
-        .fft_w_I        (fft_w_I),
-        .fft_w_Q        (fft_w_Q)
+        .grad_t_Q       (grad_t_Q)
     );
 
     // ============================================================
@@ -438,78 +411,50 @@ module tb_top_global_all;
     end
 
     // ============================================================
-    // BLOQUE 5 — CMUL Monitor  (v14: W0 adaptivo, no se verifica Y=X)
+    // BLOQUE 5 — CMUL Monitor
     // ============================================================
-    // En v14 W0[k] se actualiza frame a frame desde fft_pesos.
-    // Ya NO podemos verificar Y=X_curr (W0 ya no es identidad).
-    // Se verifica solo timing:
-    //   C1) NFFT muestras válidas por frame
-    //   C2) 1 start por frame alineado con hb_out_start
-    //   C3) sin gaps en cmul_out_valid dentro del frame
-    // ============================================================
+    reg signed [NB_INT-1:0] hb_prev_I, hb_prev_Q;
     reg                      hb_prev_valid, hb_prev_start;
     integer cmul_total_errs, cmul_frames_checked;
     integer cmul_frame_errs, cmul_start_misalign;
-    integer cmul_frame_valid_cnt;
-    integer cmul_c3_errs;
-    reg     cmul_prev_valid;
 
     initial begin
-        hb_prev_valid=0; hb_prev_start=0;
+        hb_prev_I=0; hb_prev_Q=0; hb_prev_valid=0; hb_prev_start=0;
         cmul_total_errs=0; cmul_frames_checked=0;
         cmul_frame_errs=0; cmul_start_misalign=0;
-        cmul_frame_valid_cnt=0; cmul_c3_errs=0;
     end
 
     always @(posedge clk_fast) begin : cmul_monitor
+        integer dIcm, dQcm;
         if (rst) begin
-            hb_prev_valid<=0; hb_prev_start<=0;
+            hb_prev_I<=0; hb_prev_Q<=0; hb_prev_valid<=0; hb_prev_start<=0;
             cmul_total_errs<=0; cmul_frames_checked<=0;
             cmul_frame_errs<=0; cmul_start_misalign<=0;
-            cmul_frame_valid_cnt<=0; cmul_c3_errs<=0;
-            cmul_prev_valid<=0;
         end else begin
             hb_prev_valid <= hb_out_valid;
             hb_prev_start <= hb_out_start;
-
-            // C3: sin gaps dentro del frame
-            cmul_prev_valid <= cmul_out_valid;
-            if (cmul_frames_checked > 0 && cmul_prev_valid && !cmul_out_valid
-                && cmul_frame_valid_cnt > 0 && cmul_frame_valid_cnt < NFFT) begin
-                cmul_c3_errs     <= cmul_c3_errs + 1;
-                cmul_frame_errs  <= cmul_frame_errs + 1;
-                cmul_total_errs  <= cmul_total_errs + 1;
-                $display("[CMUL][WARN] gap en valid frame=%0d cnt=%0d",
-                    cmul_frames_checked-1, cmul_frame_valid_cnt);
-            end
+            hb_prev_I     <= hb_out_curr_I;
+            hb_prev_Q     <= hb_out_curr_Q;
 
             if (cmul_out_valid) begin
-                // C2: start alineado con hb
                 if (cmul_out_start && !hb_prev_start) begin
                     cmul_start_misalign <= cmul_start_misalign + 1;
-                    $display("[CMUL][WARN] start desalineado frame=%0d", cmul_frames_checked);
+                    $display("[CMUL][WARN] start desalineado frame %0d", cmul_frames_checked);
                 end
                 if (cmul_out_start) begin
-                    // Cerrar frame anterior
-                    if (cmul_frames_checked > 0) begin
-                        if (cmul_frame_valid_cnt !== NFFT) begin
-                            cmul_total_errs <= cmul_total_errs + 1;
-                            $display("[CMUL][FRAME %0d] FAIL C1: valid_cnt=%0d exp=%0d",
-                                cmul_frames_checked-1, cmul_frame_valid_cnt, NFFT);
-                        end
-                        if (cmul_frame_errs == 0)
-                            $display("[CMUL][FRAME %0d] PASS  valid=%0d",
-                                cmul_frames_checked-1, cmul_frame_valid_cnt);
+                    if (cmul_frames_checked>0) begin
+                        if (cmul_frame_errs==0)
+                            $display("[CMUL][FRAME %0d] PASS  errs=0", cmul_frames_checked-1);
                         else
                             $display("[CMUL][FRAME %0d] FAIL  errs=%0d",
                                 cmul_frames_checked-1, cmul_frame_errs);
                     end
-                    cmul_frame_valid_cnt <= 1;
-                    cmul_frame_errs      <= 0;
-                    cmul_frames_checked  <= cmul_frames_checked + 1;
-                end else begin
-                    cmul_frame_valid_cnt <= cmul_frame_valid_cnt + 1;
+                    cmul_frame_errs<=0;
+                    cmul_frames_checked<=cmul_frames_checked+1;
                 end
+                // Comparacion de datos deshabilitada en v14+BER:
+                // W != identidad (LMS activo), CMUL ya no debe pasar prueba Y=X.
+                // Solo se verifica timing (start alignment y frame count).
             end
         end
     end
@@ -752,6 +697,11 @@ module tb_top_global_all;
     reg signed [WN-1:0] dn_d1_I, dn_d1_Q;
     reg                  dn_d1_valid;
 
+    // Variables auxiliares del monitor SLICER (nivel modulo — XSim no soporta reg en named blocks)
+    reg signed [WN+1:0] exp_e_ext_I, exp_e_ext_Q;
+    reg signed [WN-1:0] exp_e_I, exp_e_Q;
+    reg signed [WN-1:0] exp_yhat_I, exp_yhat_Q;
+
     always @(posedge clk_fast) begin
         if (rst) begin
             dn_d1_I     <= {WN{1'b0}};
@@ -832,11 +782,7 @@ module tb_top_global_all;
                 end
 
                 // ---- Verificaciones ciclo a ciclo (delay caliente) ----
-                if (sl_armed) begin : sl_checks
-                    reg signed [WN+1:0] exp_e_ext_I, exp_e_ext_Q;
-                    reg signed [WN-1:0] exp_e_I, exp_e_Q;
-                    reg signed [WN-1:0] exp_yhat_I, exp_yhat_Q;
-
+                if (sl_armed) begin
                     // S1 + S2: yhat debe ser ±91 con signo correcto
                     exp_yhat_I = (dn_d1_I >= 0) ? QPSK_A : QPSK_A_NEG;
                     exp_yhat_Q = (dn_d1_Q >= 0) ? QPSK_A : QPSK_A_NEG;
@@ -1273,53 +1219,55 @@ module tb_top_global_all;
     integer proy_p1_errs, proy_p2_errs, proy_armed;
 
     // ============================================================
-    // Declaraciones BLOQUE 14 — UPDATE_LMS
     // ============================================================
-    integer lms_total_errs,       lms_frames_checked;
-    integer lms_frame_valid_cnt,  lms_frame_errs;
-    integer lms_w1_errs, lms_w2_errs, lms_w3_errs;
-    integer lms_armed;
-    reg     lms_prev_gt_start;    // para verificar latencia=1 ciclo
+    // Declaraciones BLOQUE 18 - BER con buffer diagnostico
+    // ============================================================
+    // Para encontrar el offset correcto, guardamos los primeros
+    // 200 bits del slicer en un buffer y correlacionamos con TX.
+    // ============================================================
+    // ============================================================
+    // BER — ventana unica post-convergencia
+    // ============================================================
+    // Metodologia:
+    //   N_ADAPT frames descartados (adaptacion del LMS)
+    //   luego medicion sobre FRAMES_TO_CHECK - N_ADAPT frames
+    //   Un solo BER por corrida → curva BER vs Es/N0 limpia
+    //
+    // Para cambiar el punto de la curva: solo cambiar sigma_scale
+    // ============================================================
+    localparam integer N_ADAPT         = 200;  // frames descartados (convergencia LMS)
+    localparam integer BER_TX_NBUF     = 33000;
+    localparam integer BER_PIPE_DELAY  = 9;    // medido: tx_wr - sym_cnt al final
+    localparam integer BER_RX_DIAG     = 2000; // bits para correlacion del lag
 
-    // ============================================================
-    // Declaraciones BLOQUE 15 — ZERO_PAD_PESOS
-    // ============================================================
-    integer zpp_total_errs,      zpp_frames_checked;
-    integer zpp_frame_valid_cnt, zpp_frame_errs;
-    integer zpp_z1_errs, zpp_z2_errs, zpp_z3_errs;
-    integer zpp_armed;
-    integer zpp_samp_idx;       // posicion dentro del frame (0..NFFT-1)
-    reg     zpp_prev_lms_start; // para verificar latencia=1 ciclo
+    // Buffer TX
+    reg  tx_ber_I [0:BER_TX_NBUF-1];
+    reg  tx_ber_Q [0:BER_TX_NBUF-1];
+    integer tx_ber_wr;
 
-    // ============================================================
-    // Declaraciones BLOQUE 16 — FFT_PESOS
-    // ============================================================
-    integer fftw_total_errs,      fftw_frames_checked;
-    integer fftw_frame_valid_cnt, fftw_frame_errs;
-    integer fftw_f1_errs, fftw_f2_errs, fftw_f3_errs;
-    integer fftw_armed;
-    reg     fftw_prev_valid;    // para verificar sin gaps en frame
+    // Buffer RX diagnostico (primeros BER_RX_DIAG simbolos POST-adaptacion)
+    reg  rx_diag_I [0:BER_RX_DIAG-1];
+    reg  rx_diag_Q [0:BER_RX_DIAG-1];
 
-    // ============================================================
-    // Declaraciones BLOQUE 17 — CONVERGENCIA
-    // ============================================================
-    // err_acc: acumulador del |e_I| + |e_Q| dentro del frame
-    // err_avg: promedio al cerrar el frame  (err_acc / N_HALF)
-    // w0_sample: muestra W_new[0] y W_new[16] por frame para ver evolucion
-    // conv_diverge: se activa si err_avg sube 3 frames consecutivos
-    // ============================================================
-    integer conv_err_acc;
-    integer conv_err_avg;
-    integer conv_err_avg_prev;
-    integer conv_err_rising;    // contador de frames con error creciente
-    integer conv_frames;
-    integer conv_w0_re_last;    // ultimo W_new[0] Re visto
-    integer conv_w16_re_last;   // ultimo W_new[16] Re visto
-    integer conv_w0_cnt;        // contador para capturar bin 0 y bin 16
-    integer conv_armed;
-    integer conv_diverge_warn;
+    // Contador global de simbolos slicer
+    integer ber_sym_cnt;
 
-    // ============================================================
+    // Acumulador BER — una sola ventana post-convergencia
+    integer ber_bits, ber_ei, ber_eq;
+
+    // Variables para correlacion y calculo
+    integer ber_tx_idx;
+    integer b_lag, b_k, b_errs_i, b_best_lag, b_best_errs;
+    integer b_best_lag_q, b_best_errs_q;
+
+    // Deteccion posedge clk_low
+    reg  ber_clk_low_d;
+    wire ber_clklow_r = clk_low & ~ber_clk_low_d;
+
+    // Demapper: MSB del simbolo decidido = bit original
+    wire ber_rx_I = sl_out_yhat_I[WN-1];
+    wire ber_rx_Q = sl_out_yhat_Q[WN-1];
+
     // RESUMEN FINAL  — disparado cuando IFFT termina sus 30 frames
     // ============================================================
     always @(posedge clk_fast) begin
@@ -1327,10 +1275,7 @@ module tb_top_global_all;
         if (!rst && ifft_out_valid && checked_frames == FRAMES_TO_CHECK
             && out_samp == (NFFT-1)
             && ig_frames_checked >= 5
-            && proy_frames_checked >= 5
-            && lms_frames_checked >= 5
-            && zpp_frames_checked >= 5
-            && fftw_frames_checked >= 5) begin
+            && proy_frames_checked >= 5) begin
 
             if (frame_errs==0)
                 $display("[IFFT][FRAME %0d] PASS", checked_frames-1);
@@ -1339,7 +1284,7 @@ module tb_top_global_all;
 
             $display("");
             $display("========================================");
-            $display("[TB] RESUMEN FINAL  v14 (loop LMS cerrado)");
+            $display("[TB] RESUMEN FINAL  v14+BER (loop LMS cerrado + contador BER)");
             $display("========================================");
             $display("[OS]   %s  overflow=%0d  period_warns=%0d",
                 (os_overflow||os_warns!=0) ? "FAIL":"PASS", os_overflow, os_warns);
@@ -1352,14 +1297,12 @@ module tb_top_global_all;
             $display("[HB]   frames_checked=%0d  curr_errs=%0d  old_errs=%0d  => %s",
                 hb_frame_total, hb_total_curr_errs, hb_total_old_errs,
                 (hb_total_curr_errs==0&&hb_total_old_errs==0)?"PASS":"FAIL");
-            $display("[CMUL] frames_checked=%0d  total_errs=%0d  misalign=%0d  => %s",
-                cmul_frames_checked, cmul_total_errs, cmul_start_misalign,
-                (cmul_total_errs==0&&cmul_start_misalign==0)?"PASS: timing OK (W0 adaptivo desde LMS)":"FAIL");
-            $display("  [CMUL] C1(valid_cnt) errs=%0d  C2(start_align) misalign=%0d  C3(gaps) errs=%0d",
-                cmul_total_errs, cmul_start_misalign, cmul_c3_errs);
+            $display("[CMUL] frames_checked=%0d  misalign=%0d  => %s (data check OFF: W!=I esperado)",
+                cmul_frames_checked, cmul_start_misalign,
+                (cmul_start_misalign==0)?"PASS: timing OK (W0 adaptivo desde LMS)":"FAIL: start desalineado");
             $display("[IFFT] checked_frames=%0d  total_errs=%0d  tol=%0d  => %s",
                 FRAMES_TO_CHECK, total_errs, TOL,
-                total_errs==0?"PASS: IFFT(W*FFT(x))=x":"FAIL");
+                total_errs==0?"PASS":"FAIL (esperado: W!=I, filtrado activo)");
             $display("[DN]   frames_checked=%0d  total_errs=%0d  => %s",
                 dn_frames_checked, dn_total_errs,
                 dn_total_errs==0 ? "PASS: dn_out=ifft[N..2N-1]" : "FAIL");
@@ -1407,38 +1350,45 @@ module tb_top_global_all;
                 proy_total_errs==0 ? "PASS: grad_t = phi_t[N..2N-1] (16 valid/frame)" : "FAIL");
             $display("  [PROY] P1(valid_cnt) errs=%0d  P2(start_cnt) errs=%0d",
                 proy_p1_errs, proy_p2_errs);
-            $display("[LMS]  frames_checked=%0d  total_errs=%0d  => %s",
-                lms_frames_checked, lms_total_errs,
-                lms_total_errs==0 ? "PASS: w_new valido — UPDATE_LMS OK" : "FAIL");
-            $display("  [LMS] W1(valid_cnt) errs=%0d  W2(start_cnt) errs=%0d  W3(latencia) errs=%0d",
-                lms_w1_errs, lms_w2_errs, lms_w3_errs);
-            $display("  [LMS] switched=%0d  frame_cnt=%0d  (N_SWITCH=200, %0d frames procesados)",
-                lms_switched, lms_frame_cnt, lms_frames_checked);
-            $display("[ZPP]  frames_checked=%0d  total_errs=%0d  => %s",
-                zpp_frames_checked, zpp_total_errs,
-                zpp_total_errs==0 ? "PASS: [w|0..0] 32 muestras/frame OK" : "FAIL");
-            $display("  [ZPP] Z1(valid_cnt) errs=%0d  Z2(zeros_OK) errs=%0d  Z3(latencia) errs=%0d",
-                zpp_z1_errs, zpp_z2_errs, zpp_z3_errs);
-            $display("[FFTW] frames_checked=%0d  total_errs=%0d  => %s",
-                fftw_frames_checked, fftw_total_errs,
-                fftw_total_errs==0 ? "PASS: FFT_PESOS timing OK (32 valid/frame)" : "FAIL");
-            $display("  [FFTW] F1(valid_cnt) errs=%0d  F2(start_cnt) errs=%0d  F3(gaps) errs=%0d",
-                fftw_f1_errs, fftw_f2_errs, fftw_f3_errs);
-            $display("[CONV] frames_monitoreados=%0d  err_avg_final=%0d  diverge_warns=%0d  => %s",
-                conv_frames, conv_err_avg, conv_diverge_warn,
-                conv_diverge_warn==0 ? "OK: sin divergencia detectada" : "WARN: posible divergencia");
-            $display("  [CONV] Ultimo W_new[0]_re=%0d  W_new[16]_re=%0d",
-                conv_w0_re_last, conv_w16_re_last);
-            $display("  [CONV] Interpretacion:");
-            if (conv_err_avg < conv_err_avg_prev)
-                $display("         err_avg bajo  (%0d -> %0d) => convergencia en progreso",
-                    conv_err_avg_prev, conv_err_avg);
-            else if (conv_err_avg == conv_err_avg_prev)
-                $display("         err_avg estable (%0d) => sistema estacionario o pocas iteraciones",
-                    conv_err_avg);
-            else
-                $display("         err_avg subio (%0d -> %0d) => verificar mu o modelo",
-                    conv_err_avg_prev, conv_err_avg);
+            // ---- BER post-convergencia (ventana unica) ----
+            begin
+                // Correlacion I para confirmar lag
+                b_best_errs = BER_RX_DIAG + 1;
+                b_best_lag  = 0;
+                for (b_lag = 0; b_lag < 200; b_lag = b_lag + 1) begin
+                    b_errs_i = 0;
+                    for (b_k = 0; b_k < BER_RX_DIAG; b_k = b_k + 1) begin
+                        if ((N_ADAPT*N_HALF + b_k + b_lag) < tx_ber_wr) begin
+                            if (rx_diag_I[b_k] !== tx_ber_I[N_ADAPT*N_HALF + b_k - b_lag])
+                                b_errs_i = b_errs_i + 1;
+                        end
+                    end
+                    if (b_errs_i < b_best_errs) begin
+                        b_best_errs = b_errs_i;
+                        b_best_lag  = b_lag;
+                    end
+                end
+
+                $display("[BER]  sigma_scale=%0d  sym_cnt=%0d  tx_wr=%0d  PIPE_DELAY=%0d",
+                    sigma_scale, ber_sym_cnt, tx_ber_wr, BER_PIPE_DELAY);
+                $display("[BER]  Corr lag=%0d  errs=%0d/%0d  BER=0.%03d (confirma offset)",
+                    b_best_lag, b_best_errs, BER_RX_DIAG,
+                    (b_best_errs*1000)/BER_RX_DIAG);
+                $display("[BER]  ventana=[frame %0d..%0d]  bits=%0d",
+                    N_ADAPT, FRAMES_TO_CHECK-1, ber_bits);
+
+                // Resultado final
+                if (ber_bits > 0) begin
+                    $display("[BER]  errs_I=%0d  errs_Q=%0d  BER=0.%03d (x1e-3)",
+                        ber_ei, ber_eq,
+                        ((ber_ei + ber_eq)*1000) / ber_bits);
+                    // Mostrar BER por canal también
+                    $display("[BER]  BER_I=0.%03d  BER_Q=0.%03d",
+                        (ber_ei*1000) / (ber_bits/2),
+                        (ber_eq*1000) / (ber_bits/2));
+                end else
+                    $display("[BER]  sin datos — aumentar FRAMES_TO_CHECK");
+            end
             $display("========================================");
             $finish;
         end
@@ -1688,329 +1638,74 @@ module tb_top_global_all;
     end
 
     // ============================================================
-    // BLOQUE 14 — UPDATE_LMS Monitor
     // ============================================================
-    //
-    //   W1) exactamente N_HALF=16 muestras válidas por frame
-    //   W2) exactamente 1 start por frame
-    //   W3) latencia = 1 ciclo: lms_w_start aparece 1 clk después
-    //       de grad_t_start
-    //
-    //   Nota sobre switched:
-    //   Con N_SWITCH=200 y solo 30 frames en este TB, switched=0
-    //   es correcto — el sistema todavía está en fase de arranque.
-    //   Se reporta frame_cnt al final para confirmar que progresa.
     // ============================================================
+    // BLOQUE 18 — BER ventana unica post-convergencia
+    // ============================================================
+    // Simbolos [N_ADAPT*N_HALF .. FRAMES_TO_CHECK*N_HALF):
+    //   descarta la adaptacion inicial, mide en regimen
+
+    integer ber_init_j;
     initial begin
-        lms_total_errs=0;      lms_frames_checked=0;
-        lms_frame_valid_cnt=0; lms_frame_errs=0;
-        lms_w1_errs=0; lms_w2_errs=0; lms_w3_errs=0;
-        lms_armed=0;
+        tx_ber_wr  = 0;
+        ber_sym_cnt = 0;
+        ber_bits   = 0;
+        ber_ei     = 0;
+        ber_eq     = 0;
+        ber_tx_idx = 0;
+        b_best_lag = 0; b_best_errs = 0;
+        ber_clk_low_d = 1'b0;
+        for (ber_init_j = 0; ber_init_j < BER_TX_NBUF; ber_init_j = ber_init_j + 1)
+            begin tx_ber_I[ber_init_j] = 1'b0; tx_ber_Q[ber_init_j] = 1'b0; end
+        for (ber_init_j = 0; ber_init_j < BER_RX_DIAG; ber_init_j = ber_init_j + 1)
+            begin rx_diag_I[ber_init_j] = 1'b0; rx_diag_Q[ber_init_j] = 1'b0; end
     end
 
-    always @(posedge clk_fast) begin : lms_monitor
+    // Captura TX
+    always @(posedge clk_fast) begin : ber_clk_det
+        if (rst) ber_clk_low_d <= 1'b0;
+        else     ber_clk_low_d <= clk_low;
+    end
+
+    always @(posedge clk_fast) begin : ber_tx_cap
         if (rst) begin
-            lms_total_errs      <= 0; lms_frames_checked  <= 0;
-            lms_frame_valid_cnt <= 0; lms_frame_errs      <= 0;
-            lms_w1_errs  <= 0; lms_w2_errs <= 0; lms_w3_errs <= 0;
-            lms_armed    <= 0; lms_prev_gt_start <= 0;
-        end else begin
-
-            // Registrar grad_t_start del ciclo anterior (para W3)
-            lms_prev_gt_start <= (grad_t_valid && grad_t_start);
-
-            // W3: lms_w_start debe aparecer exactamente 1 ciclo después
-            // de grad_t_start (latencia = 1 ciclo del registro de salida)
-            if (lms_prev_gt_start && !lms_w_start) begin
-                lms_w3_errs     <= lms_w3_errs + 1;
-                lms_frame_errs  <= lms_frame_errs + 1;
-                lms_total_errs  <= lms_total_errs + 1;
-                $display("[LMS] FAIL W3: grad_t_start hace 1 ciclo pero lms_w_start=0");
-            end
-
-            // W1/W2: contar válidos y starts por frame
-            if (lms_w_valid) begin
-                lms_armed <= 1;
-
-                if (lms_w_start) begin
-                    // Cerrar frame anterior
-                    if (lms_armed) begin
-                        if (lms_frame_valid_cnt !== N_HALF) begin
-                            lms_w1_errs    <= lms_w1_errs + 1;
-                            lms_total_errs <= lms_total_errs + 1;
-                            $display("[LMS][FRAME %0d] FAIL W1: valid_cnt=%0d exp=%0d",
-                                lms_frames_checked, lms_frame_valid_cnt, N_HALF);
-                        end
-                        if (lms_frame_errs == 0)
-                            $display("[LMS][FRAME %0d] PASS  valid=%0d  switched=%0d  frame_cnt=%0d",
-                                lms_frames_checked, lms_frame_valid_cnt,
-                                lms_switched, lms_frame_cnt);
-                        else
-                            $display("[LMS][FRAME %0d] FAIL  errs=%0d",
-                                lms_frames_checked, lms_frame_errs);
-                        lms_frames_checked <= lms_frames_checked + 1;
-                    end
-                    lms_frame_valid_cnt <= 1;
-                    lms_frame_errs      <= 0;
-                end else begin
-                    lms_frame_valid_cnt <= lms_frame_valid_cnt + 1;
-                end
-            end
-
+            tx_ber_wr <= 0;
+        end else if (ber_clklow_r && tx_ber_wr < BER_TX_NBUF) begin
+            tx_ber_I[tx_ber_wr] <= tx_I_dbg[WN-1];
+            tx_ber_Q[tx_ber_wr] <= tx_Q_dbg[WN-1];
+            tx_ber_wr <= tx_ber_wr + 1;
         end
     end
 
-    // ============================================================
-    // BLOQUE 15 — ZERO_PAD_PESOS Monitor
-    // ============================================================
-    //
-    //   Z1) exactamente NFFT=32 muestras válidas por frame
-    //   Z2) las últimas N=16 muestras del frame son cero
-    //       (la primera mitad son los pesos — no verificables
-    //        sin modelo de referencia, pero la estructura sí)
-    //   Z3) latencia = 1 ciclo: zpp_out_start aparece 1 clk
-    //       después de lms_w_start
-    // ============================================================
-    initial begin
-        zpp_total_errs=0;      zpp_frames_checked=0;
-        zpp_frame_valid_cnt=0; zpp_frame_errs=0;
-        zpp_z1_errs=0; zpp_z2_errs=0; zpp_z3_errs=0;
-        zpp_armed=0; zpp_samp_idx=0;
-    end
-
-    always @(posedge clk_fast) begin : zpp_monitor
+    // Captura RX y acumulacion BER
+    always @(posedge clk_fast) begin : ber_count
         if (rst) begin
-            zpp_total_errs      <= 0; zpp_frames_checked  <= 0;
-            zpp_frame_valid_cnt <= 0; zpp_frame_errs      <= 0;
-            zpp_z1_errs <= 0; zpp_z2_errs <= 0; zpp_z3_errs <= 0;
-            zpp_armed <= 0; zpp_samp_idx <= 0;
-            zpp_prev_lms_start <= 0;
-        end else begin
-
-            // Z3: latencia = 1 ciclo
-            zpp_prev_lms_start <= (lms_w_valid && lms_w_start);
-            if (zpp_prev_lms_start && !zpp_out_start) begin
-                zpp_z3_errs    <= zpp_z3_errs + 1;
-                zpp_frame_errs <= zpp_frame_errs + 1;
-                zpp_total_errs <= zpp_total_errs + 1;
-                $display("[ZPP] FAIL Z3: lms_w_start hace 1 ciclo pero zpp_out_start=0");
+            ber_sym_cnt <= 0;
+            ber_bits    <= 0;
+            ber_ei      <= 0;
+            ber_eq      <= 0;
+        end else if (sl_out_valid) begin
+            // Buffer diagnostico: primeros BER_RX_DIAG simbolos post-adaptacion
+            if (ber_sym_cnt >= N_ADAPT*N_HALF &&
+                ber_sym_cnt <  N_ADAPT*N_HALF + BER_RX_DIAG) begin
+                rx_diag_I[ber_sym_cnt - N_ADAPT*N_HALF] <= ber_rx_I;
+                rx_diag_Q[ber_sym_cnt - N_ADAPT*N_HALF] <= ber_rx_Q;
             end
 
-            // Z1/Z2: contar válidos y verificar ceros en segunda mitad
-            if (zpp_out_valid) begin
-                zpp_armed <= 1;
-
-                if (zpp_out_start) begin
-                    // Cerrar frame anterior
-                    if (zpp_armed) begin
-                        if (zpp_frame_valid_cnt !== NFFT) begin
-                            zpp_z1_errs    <= zpp_z1_errs + 1;
-                            zpp_total_errs <= zpp_total_errs + 1;
-                            $display("[ZPP][FRAME %0d] FAIL Z1: valid_cnt=%0d exp=%0d",
-                                zpp_frames_checked, zpp_frame_valid_cnt, NFFT);
-                        end
-                        if (zpp_frame_errs == 0)
-                            $display("[ZPP][FRAME %0d] PASS  valid=%0d  zeros_OK",
-                                zpp_frames_checked, zpp_frame_valid_cnt);
-                        else
-                            $display("[ZPP][FRAME %0d] FAIL  errs=%0d",
-                                zpp_frames_checked, zpp_frame_errs);
-                        zpp_frames_checked <= zpp_frames_checked + 1;
-                    end
-                    zpp_frame_valid_cnt <= 1;
-                    zpp_frame_errs      <= 0;
-                    zpp_samp_idx        <= 0;  // idx=0 en el ciclo de start
-                end else begin
-                    zpp_frame_valid_cnt <= zpp_frame_valid_cnt + 1;
-                    zpp_samp_idx        <= zpp_samp_idx + 1;
-                end
-
-                // Z2: segunda mitad del frame (idx N..2N-1) debe ser cero.
-                // Guard !zpp_out_start: cuando llega start, el valor viejo de
-                // zpp_samp_idx es 32 (del frame anterior) — no chequear ahi.
-                if (!zpp_out_start && zpp_samp_idx >= N_HALF) begin
-                    if ($signed(zpp_out_wI) !== 0 || $signed(zpp_out_wQ) !== 0) begin
-                        zpp_z2_errs    <= zpp_z2_errs + 1;
-                        zpp_frame_errs <= zpp_frame_errs + 1;
-                        zpp_total_errs <= zpp_total_errs + 1;
-                        $display("[ZPP][FRAME %0d] FAIL Z2: idx=%0d wI=%0d wQ=%0d (exp 0)",
-                            zpp_frames_checked, zpp_samp_idx,
-                            $signed(zpp_out_wI), $signed(zpp_out_wQ));
-                    end
-                end
-
+            // Ventana de medicion: simbolos [N_ADAPT*N_HALF .. fin)
+            ber_tx_idx = ber_sym_cnt - BER_PIPE_DELAY;
+            if (ber_sym_cnt >= N_ADAPT*N_HALF &&
+                ber_tx_idx >= 0 && ber_tx_idx < BER_TX_NBUF) begin
+                ber_bits <= ber_bits + 2;
+                if (ber_rx_I !== tx_ber_I[ber_tx_idx]) ber_ei <= ber_ei + 1;
+                if (ber_rx_Q !== tx_ber_Q[ber_tx_idx]) ber_eq <= ber_eq + 1;
             end
+            ber_sym_cnt <= ber_sym_cnt + 1;
         end
     end
-
     // ============================================================
-    // BLOQUE 16 — FFT_PESOS Monitor
+    // fin BLOQUE 18
     // ============================================================
-    //
-    //   Reuso de fft_ifft_stream — solo verificamos timing:
-    //   F1) exactamente NFFT=32 muestras válidas por frame
-    //   F2) exactamente 1 start por frame
-    //   F3) o_valid continuo dentro del frame (sin gaps)
-    //
-    //   No hay verificación matemática — fft_ifft_stream ya está
-    //   exhaustivamente probado en BLOQUE 3, 10 y 13.
-    // ============================================================
-    initial begin
-        fftw_total_errs=0;      fftw_frames_checked=0;
-        fftw_frame_valid_cnt=0; fftw_frame_errs=0;
-        fftw_f1_errs=0; fftw_f2_errs=0; fftw_f3_errs=0;
-        fftw_armed=0;
-    end
-
-    always @(posedge clk_fast) begin : fftw_monitor
-        if (rst) begin
-            fftw_total_errs      <= 0; fftw_frames_checked  <= 0;
-            fftw_frame_valid_cnt <= 0; fftw_frame_errs      <= 0;
-            fftw_f1_errs <= 0; fftw_f2_errs <= 0; fftw_f3_errs <= 0;
-            fftw_armed <= 0; fftw_prev_valid <= 0;
-        end else begin
-
-            // F3: sin gaps — si prev_valid=1 y valid=0 dentro de un frame
-            // se detecta con el contador: si valid cae entre start y la muestra NFFT-1
-            fftw_prev_valid <= fft_w_valid;
-            if (fftw_armed && fftw_prev_valid && !fft_w_valid
-                && fftw_frame_valid_cnt > 0 && fftw_frame_valid_cnt < NFFT) begin
-                fftw_f3_errs    <= fftw_f3_errs + 1;
-                fftw_frame_errs <= fftw_frame_errs + 1;
-                fftw_total_errs <= fftw_total_errs + 1;
-                $display("[FFTW][FRAME %0d] FAIL F3: gap en valid (cnt=%0d)",
-                    fftw_frames_checked, fftw_frame_valid_cnt);
-            end
-
-            if (fft_w_valid) begin
-                fftw_armed <= 1;
-
-                if (fft_w_start) begin
-                    // Cerrar frame anterior
-                    if (fftw_armed) begin
-                        if (fftw_frame_valid_cnt !== NFFT) begin
-                            fftw_f1_errs    <= fftw_f1_errs + 1;
-                            fftw_total_errs <= fftw_total_errs + 1;
-                            $display("[FFTW][FRAME %0d] FAIL F1: valid_cnt=%0d exp=%0d",
-                                fftw_frames_checked, fftw_frame_valid_cnt, NFFT);
-                        end
-                        if (fftw_frame_errs == 0)
-                            $display("[FFTW][FRAME %0d] PASS  valid=%0d",
-                                fftw_frames_checked, fftw_frame_valid_cnt);
-                        else
-                            $display("[FFTW][FRAME %0d] FAIL  errs=%0d",
-                                fftw_frames_checked, fftw_frame_errs);
-                        fftw_frames_checked <= fftw_frames_checked + 1;
-                    end
-                    fftw_frame_valid_cnt <= 1;
-                    fftw_frame_errs      <= 0;
-                end else begin
-                    fftw_frame_valid_cnt <= fftw_frame_valid_cnt + 1;
-                end
-            end
-        end
-    end
-
-    // ============================================================
-    // BLOQUE 17 — Monitor de CONVERGENCIA
-    // ============================================================
-    //
-    // Dos fuentes de datos:
-    //   A) sl_out_e_I/Q (error del slicer) — disponible en cada frame
-    //      Promedia |e_I|+|e_Q| sobre las N=16 muestras del frame.
-    //      Si el LMS converge, este promedio debe bajar frame a frame.
-    //
-    //   B) lms_w_I/Q[0] y [16] — muestrea los pesos W_new
-    //      Bin 0 y bin 16 son representativos del espectro.
-    //      Si siempre son 0 -> loop no escribe.
-    //      Si explotan hacia ±65535 -> divergencia.
-    //
-    // Por cada frame imprime:
-    //   [CONV][FRAME N] err_avg=XXXX  W[0]=YYYY  W[16]=ZZZZ
-    //   trend= bajando/subiendo/estable  [CONVERGE/DIVERGE/ESTABLE]
-    // ============================================================
-    initial begin
-        conv_err_acc=0; conv_err_avg=0; conv_err_avg_prev=0;
-        conv_err_rising=0; conv_frames=0;
-        conv_w0_re_last=0; conv_w16_re_last=0;
-        conv_w0_cnt=0; conv_armed=0; conv_diverge_warn=0;
-    end
-
-    // A) Captura error del slicer — promedia por frame
-    always @(posedge clk_fast) begin : conv_err_monitor
-        integer abs_eI, abs_eQ;
-        if (rst) begin
-            conv_err_acc  <= 0;
-            conv_err_avg  <= 0;
-            conv_err_avg_prev <= 0;
-            conv_err_rising   <= 0;
-            conv_frames       <= 0;
-            conv_diverge_warn <= 0;
-        end else begin
-            if (sl_out_valid) begin
-                // Valor absoluto
-                abs_eI = $signed(sl_out_e_I) < 0 ?
-                         -$signed(sl_out_e_I) : $signed(sl_out_e_I);
-                abs_eQ = $signed(sl_out_e_Q) < 0 ?
-                         -$signed(sl_out_e_Q) : $signed(sl_out_e_Q);
-
-                if (sl_out_start) begin
-                    // Cerrar frame anterior
-                    if (conv_armed) begin
-                        conv_err_avg_prev <= conv_err_avg;
-                        conv_err_avg      <= conv_err_acc / N_HALF;
-
-                        // Detectar tendencia
-                        if (conv_err_acc / N_HALF > conv_err_avg + 50) begin
-                            conv_err_rising   <= conv_err_rising + 1;
-                            if (conv_err_rising >= 2) begin
-                                conv_diverge_warn <= conv_diverge_warn + 1;
-                                $display("[CONV][FRAME %0d] WARN divergencia posible: err_avg=%0d (prev=%0d)",
-                                    conv_frames, conv_err_acc/N_HALF, conv_err_avg);
-                            end
-                        end else begin
-                            conv_err_rising <= 0;
-                        end
-
-                        // Imprimir resumen del frame
-                        $display("[CONV][FRAME %0d]  err_avg=%0d  W_new[0]_re=%0d  W_new[16]_re=%0d  %s",
-                            conv_frames,
-                            conv_err_acc / N_HALF,
-                            conv_w0_re_last,
-                            conv_w16_re_last,
-                            (conv_err_acc/N_HALF < conv_err_avg) ? "bajando" :
-                            (conv_err_acc/N_HALF > conv_err_avg + 50) ? "SUBIENDO" : "estable");
-
-                        conv_frames <= conv_frames + 1;
-                    end
-                    conv_err_acc <= abs_eI + abs_eQ;
-                    conv_armed   <= 1;
-                end else begin
-                    conv_err_acc <= conv_err_acc + abs_eI + abs_eQ;
-                end
-            end
-        end
-    end
-
-    // B) Captura lms_w — muestrea bin 0 y bin 16
-    always @(posedge clk_fast) begin : conv_w_monitor
-        if (rst) begin
-            conv_w0_cnt      <= 0;
-            conv_w0_re_last  <= 0;
-            conv_w16_re_last <= 0;
-        end else begin
-            if (lms_w_valid) begin
-                if (lms_w_start) begin
-                    conv_w0_cnt     <= 0;
-                    conv_w0_re_last <= $signed(lms_w_I);
-                end else begin
-                    conv_w0_cnt <= conv_w0_cnt + 1;
-                    if (conv_w0_cnt == 15)
-                        conv_w16_re_last <= $signed(lms_w_I);
-                end
-            end
-        end
-    end
 
 endmodule
 

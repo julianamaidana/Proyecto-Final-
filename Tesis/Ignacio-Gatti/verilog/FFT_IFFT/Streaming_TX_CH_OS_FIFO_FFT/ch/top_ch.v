@@ -21,9 +21,24 @@ module top_ch #(
     // DEFINICIÓN DEL CANAL
     // ================================================================
   
+        // ================================================================
+    // CANAL ISI ASIMETRICO — 5 taps, ratio frecuencial 124x
+    // h[5]=50, h[6]=90, h[7]=70, h[8]=40, h[9]=20  (en Q7/x128)
+    // BER sin ecualizar estimado ~12% a sigma_scale=8 (SNR~15dB)
+    // Todos los taps dentro del CP (N=16) — sin IBI entre bloques OFDM
+    // ================================================================
+        // ================================================================
+    // CANAL ISI 3 taps — tap principal h[6]=110, laterales h[5]=h[7]=45
+    // ratio |H|max/|H|min = 10x — ISI moderada, manejable en Q17.10
+    // BER sin ecualizar ~10% a sigma_scale=8 (SNR~15dB)
+    // ================================================================
+        // Canal delta puro: h = delta[n-6] (delay 6 ciclos en clk_low)
+    // Para verificacion del lag del pipeline sin ISI
+        // Canal ISI 3 taps: h[5]=45, h[6]=110 (tap principal), h[7]=45 en Q7
+    // Ratio |H|max/|H|min = 10x — ISI moderada, manejable en Q17.10
     parameter [L_CH*CWIDTH-1:0] H_REAL_INIT = {
-    9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd128,
-    9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0
+    9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd45, 9'sd110,
+    9'sd45, 9'sd0, 9'sd0, 9'sd0, 9'sd0, 9'sd0
     },
 
 

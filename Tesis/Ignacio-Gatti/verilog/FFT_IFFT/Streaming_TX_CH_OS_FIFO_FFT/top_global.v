@@ -413,7 +413,8 @@ module top_global_all #(
         .i_X1_re   (hb_out_old_I),
         .i_X1_im   (hb_out_old_Q),
         // Puerto LMS activo — W0[k] actualizado por fft_pesos
-        .i_we      (fft_w_valid),
+        .i_we      (fft_w_valid), //RTL_ECUAL
+        //.i_we      (1'b0),         // RTL_NO_ECUA
         .i_wk      (cmul_eff_wk),
         .i_wsel    (1'b0),          // K_HIST=1: solo W0
         .i_W_re    (fft_w_I),
@@ -596,8 +597,8 @@ module top_global_all #(
         .rst    (rst),
         .i_valid(hb_out_valid),
         .i_start(hb_out_start),
-        .i_xre  (hb_out_old_I),
-        .i_xim  (hb_out_old_Q),
+        .i_xre  (hb_out_curr_I),
+        .i_xim  (hb_out_curr_Q),
         .o_valid(xhd_out_valid),
         .o_start(xhd_out_start),
         .o_xre  (xhd_out_re),
@@ -719,9 +720,9 @@ module top_global_all #(
         .NB_W       (NB_INT),
         .NBF_W      (NBF_INT),
         .N          (NFFT / 2),    // N=16
-        .MU_SH_INIT (6),           // mu≈0.0156 — arranque
-        .MU_SH_FINAL(8),           // mu≈0.0039 — estado estable
-        .N_SWITCH   (200)          // igual que Python N_SWITCH=200
+        .MU_SH_INIT (7),           // mu≈0.002 — arranque conservador  --- 9
+        .MU_SH_FINAL(9),          // mu≈0.0005 — estado estable      ---- 11
+        .N_SWITCH   (200)          // igual que Python N_SWITCH=200    ----200
     ) u_lms (
         .clk        (clk_fast),
         .rst        (rst),
