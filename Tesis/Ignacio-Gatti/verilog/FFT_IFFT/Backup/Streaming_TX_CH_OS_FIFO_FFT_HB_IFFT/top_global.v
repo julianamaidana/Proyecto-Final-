@@ -10,8 +10,7 @@
 //   -> FIFO(clk_fast)
 //   -> FFT(clk_fast)           [NB_INT=17 bits salida]
 //   -> HISTORY_BUFFER(clk_fast)[almacena K frames pasados de la FFT]
-//   -> CMUL_PBFDAF(clk_fast)  [Y=W0·X_curr+W1·X_old, LMS-ready]
-//   -> IFFT(clk_fast)
+//   -> IFFT(clk_fast)          [recibe X_curr del history buffer]
 //
 // Dominio de relojes:
 //   clk_low  = clk_fast / 2  (TX, CH, valid de OS)
@@ -89,12 +88,6 @@ module top_global_all #(
     // --- History Buffer: frame pasado (para ecualizador futuro) ---
     output wire signed [NB_INT-1:0] hb_out_old_I,
     output wire signed [NB_INT-1:0] hb_out_old_Q,
-
-    // --- CMUL: salida del filtro frecuencial W*X ---
-    output wire                     cmul_out_valid,
-    output wire                     cmul_out_start,
-    output wire signed [NB_INT-1:0] cmul_out_I,
-    output wire signed [NB_INT-1:0] cmul_out_Q,
 
     // --- Salida IFFT ---
     output wire                 ifft_out_valid,
@@ -309,56 +302,11 @@ module top_global_all #(
     );
 
     // ============================================================
-    // CMUL  (clk_fast)
-    //
-    //   Y[k] = W0[k]·X_curr[k] + W1[k]·X_old[k]
-    //
-    //   X_curr: frame FFT actual          (del history_buffer)
-    //   X_old : frame FFT de hace K bloques (del history_buffer)
-    //
-    //   Inicialización: W0=1+0j, W1=0  →  Y = X_curr  (identidad)
-    //   Con W=identidad: IFFT(Y) = IFFT(FFT(x)) = x  ✓
-    //
-    //   Puerto LMS (i_we/i_wk/i_wsel/i_W_re/i_W_im):
-    //     Por ahora conectado a 0 (inactivo).
-    //     Cuando se integre el bloque UPDATE_LMS, solo se conectan
-    //     esos puertos — el resto del top NO cambia.
-    // ============================================================
-    wire [$clog2(NFFT)-1:0] cmul_samp_dbg;
-
-    cmul_pbfdaf #(
-        .NB_W (NB_INT),
-        .NBF_W(NBF_INT),
-        .NFFT (NFFT)
-    ) u_cmul (
-        .clk       (clk_fast),
-        .rst       (rst),
-        // Datos de entrada: X_curr y X_old del history_buffer
-        .i_valid   (hb_out_valid),
-        .i_start   (hb_out_start),
-        .i_X0_re   (hb_out_curr_I),   // X_curr Re
-        .i_X0_im   (hb_out_curr_Q),   // X_curr Im
-        .i_X1_re   (hb_out_old_I),    // X_old  Re
-        .i_X1_im   (hb_out_old_Q),    // X_old  Im
-        // Puerto LMS — inactivo hasta integrar UPDATE_LMS
-        .i_we      (1'b0),
-        .i_wk      ({$clog2(NFFT){1'b0}}),
-        .i_wsel    (1'b0),
-        .i_W_re    ({NB_INT{1'b0}}),
-        .i_W_im    ({NB_INT{1'b0}}),
-        // Salida hacia IFFT
-        .o_valid   (cmul_out_valid),
-        .o_start   (cmul_out_start),
-        .o_yI      (cmul_out_I),
-        .o_yQ      (cmul_out_Q),
-        .o_samp_idx(cmul_samp_dbg)
-    );
-
-    // ============================================================
     // IFFT  (clk_fast)
-    //   Recibe Y = W*X del CMUL (antes recibía X_curr directo del HB).
-    //   Con W=identidad: IFFT(W*FFT(x)) = IFFT(FFT(x)) = x
-    //   La verificación del testbench sigue siendo válida.
+    //   Recibe X_curr del history buffer.
+    //   Cuando el ecualizador esté integrado, la señal que entra
+    //   aquí será la salida del filtro frecuencial (W*X), no X_curr.
+    //   Por ahora: IFFT(FFT(x)) = x  (identidad).
     // ============================================================
     wire ifft_rdy;
 
@@ -372,10 +320,10 @@ module top_global_all #(
     ) u_ifft (
         .i_clk    (clk_fast),
         .i_rst    (rst),
-        .i_valid  (cmul_out_valid),  // <-- ahora viene del CMUL
-        .i_start  (cmul_out_start),  // <-- ahora viene del CMUL
-        .i_xI     (cmul_out_I),      // <-- Y = W*X del CMUL
-        .i_xQ     (cmul_out_Q),
+        .i_valid  (hb_out_valid),    // <-- viene del HB, no directo de FFT
+        .i_start  (hb_out_start),    // <-- viene del HB
+        .i_xI     (hb_out_curr_I),   // <-- X_curr del HB
+        .i_xQ     (hb_out_curr_Q),
         .i_inverse(1'b1),
         .o_in_ready(ifft_rdy),
         .o_start  (ifft_out_start),

@@ -1,0 +1,553 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="tb_top_global_all_behav.wdb" id="1">
+         <top_modules>
+            <top_module name="glbl" />
+            <top_module name="tb_top_global_all" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <zoom_setting>
+      <ZoomStartTime time="0.000000 us"></ZoomStartTime>
+      <ZoomEndTime time="11.005001 us"></ZoomEndTime>
+      <Cursor1Time time="11.005000 us"></Cursor1Time>
+   </zoom_setting>
+   <column_width_setting>
+      <NameColumnWidth column_width="128"></NameColumnWidth>
+      <ValueColumnWidth column_width="58"></ValueColumnWidth>
+   </column_width_setting>
+   <WVObjectSize size="124" />
+   <wvobject type="divider" fp_name="divider212">
+      <obj_property name="label">Settings</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/clk_low" type="logic">
+      <obj_property name="ElementShortName">clk_low</obj_property>
+      <obj_property name="ObjectShortName">clk_low</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/clk_fast" type="logic">
+      <obj_property name="ElementShortName">clk_fast</obj_property>
+      <obj_property name="ObjectShortName">clk_fast</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/rst" type="logic">
+      <obj_property name="ElementShortName">rst</obj_property>
+      <obj_property name="ObjectShortName">rst</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/enable_div" type="logic">
+      <obj_property name="ElementShortName">enable_div</obj_property>
+      <obj_property name="ObjectShortName">enable_div</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider57">
+      <obj_property name="label">TX</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_tx/i_en" type="logic">
+      <obj_property name="ElementShortName">i_en</obj_property>
+      <obj_property name="ObjectShortName">i_en</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/tx_I_dbg" type="array">
+      <obj_property name="ElementShortName">tx_I_dbg[8:0]</obj_property>
+      <obj_property name="ObjectShortName">tx_I_dbg[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/tx_Q_dbg" type="array">
+      <obj_property name="ElementShortName">tx_Q_dbg[8:0]</obj_property>
+      <obj_property name="ObjectShortName">tx_Q_dbg[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider58">
+      <obj_property name="label">CH</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ch_I_dbg" type="array">
+      <obj_property name="ElementShortName">ch_I_dbg[8:0]</obj_property>
+      <obj_property name="ObjectShortName">ch_I_dbg[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ch_Q_dbg" type="array">
+      <obj_property name="ElementShortName">ch_Q_dbg[8:0]</obj_property>
+      <obj_property name="ObjectShortName">ch_Q_dbg[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sigma_scale" type="array">
+      <obj_property name="ElementShortName">sigma_scale[10:0]</obj_property>
+      <obj_property name="ObjectShortName">sigma_scale[10:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider61">
+      <obj_property name="label">OS</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/os_valid" type="logic">
+      <obj_property name="ElementShortName">os_valid</obj_property>
+      <obj_property name="ObjectShortName">os_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/os_start" type="logic">
+      <obj_property name="ElementShortName">os_start</obj_property>
+      <obj_property name="ObjectShortName">os_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/os_overflow" type="logic">
+      <obj_property name="ElementShortName">os_overflow</obj_property>
+      <obj_property name="ObjectShortName">os_overflow</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/os_I" type="array">
+      <obj_property name="ElementShortName">os_I[8:0]</obj_property>
+      <obj_property name="ObjectShortName">os_I[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/os_Q" type="array">
+      <obj_property name="ElementShortName">os_Q[8:0]</obj_property>
+      <obj_property name="ObjectShortName">os_Q[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider62">
+      <obj_property name="label">FIFO</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fifo_count" type="array">
+      <obj_property name="ElementShortName">fifo_count[8:0]</obj_property>
+      <obj_property name="ObjectShortName">fifo_count[8:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fifo_full" type="logic">
+      <obj_property name="ElementShortName">fifo_full</obj_property>
+      <obj_property name="ObjectShortName">fifo_full</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fifo_empty" type="logic">
+      <obj_property name="ElementShortName">fifo_empty</obj_property>
+      <obj_property name="ObjectShortName">fifo_empty</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fifo_overflow" type="logic">
+      <obj_property name="ElementShortName">fifo_overflow</obj_property>
+      <obj_property name="ObjectShortName">fifo_overflow</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider59">
+      <obj_property name="label">FFT</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_in_I" type="array">
+      <obj_property name="ElementShortName">fft_in_I[8:0]</obj_property>
+      <obj_property name="ObjectShortName">fft_in_I[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_in_Q" type="array">
+      <obj_property name="ElementShortName">fft_in_Q[8:0]</obj_property>
+      <obj_property name="ObjectShortName">fft_in_Q[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_in_valid" type="logic">
+      <obj_property name="ElementShortName">fft_in_valid</obj_property>
+      <obj_property name="ObjectShortName">fft_in_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_in_start" type="logic">
+      <obj_property name="ElementShortName">fft_in_start</obj_property>
+      <obj_property name="ObjectShortName">fft_in_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_out_valid" type="logic">
+      <obj_property name="ElementShortName">fft_out_valid</obj_property>
+      <obj_property name="ObjectShortName">fft_out_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_out_start" type="logic">
+      <obj_property name="ElementShortName">fft_out_start</obj_property>
+      <obj_property name="ObjectShortName">fft_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_out_I" type="array">
+      <obj_property name="ElementShortName">fft_out_I[16:0]</obj_property>
+      <obj_property name="ObjectShortName">fft_out_I[16:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/fft_out_Q" type="array">
+      <obj_property name="ElementShortName">fft_out_Q[16:0]</obj_property>
+      <obj_property name="ObjectShortName">fft_out_Q[16:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider575">
+      <obj_property name="label">HISTORY_BUFFER</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_X_curr_re" type="array">
+      <obj_property name="ElementShortName">o_X_curr_re[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_X_curr_re[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_X_curr_im" type="array">
+      <obj_property name="ElementShortName">o_X_curr_im[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_X_curr_im[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_X_old_re" type="array">
+      <obj_property name="ElementShortName">o_X_old_re[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_X_old_re[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_X_old_im" type="array">
+      <obj_property name="ElementShortName">o_X_old_im[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_X_old_im[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_wr_bank" type="array">
+      <obj_property name="ElementShortName">o_wr_bank[0:0]</obj_property>
+      <obj_property name="ObjectShortName">o_wr_bank[0:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_hb/o_samp_idx" type="array">
+      <obj_property name="ElementShortName">o_samp_idx[4:0]</obj_property>
+      <obj_property name="ObjectShortName">o_samp_idx[4:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider576">
+      <obj_property name="label">CMUL</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/i_X0_re" type="array">
+      <obj_property name="ElementShortName">i_X0_re[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_X0_re[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/i_X0_im" type="array">
+      <obj_property name="ElementShortName">i_X0_im[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_X0_im[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/i_X1_re" type="array">
+      <obj_property name="ElementShortName">i_X1_re[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_X1_re[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/i_X1_im" type="array">
+      <obj_property name="ElementShortName">i_X1_im[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_X1_im[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/o_yI" type="array">
+      <obj_property name="ElementShortName">o_yI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yI[16:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/o_yQ" type="array">
+      <obj_property name="ElementShortName">o_yQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yQ[16:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/o_samp_idx" type="array">
+      <obj_property name="ElementShortName">o_samp_idx[4:0]</obj_property>
+      <obj_property name="ObjectShortName">o_samp_idx[4:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/W0_re" type="array">
+      <obj_property name="ElementShortName">W0_re[0:31][16:0]</obj_property>
+      <obj_property name="ObjectShortName">W0_re[0:31][16:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/W0_im" type="array">
+      <obj_property name="ElementShortName">W0_im[0:31][16:0]</obj_property>
+      <obj_property name="ObjectShortName">W0_im[0:31][16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/W1_re" type="array">
+      <obj_property name="ElementShortName">W1_re[0:31][16:0]</obj_property>
+      <obj_property name="ObjectShortName">W1_re[0:31][16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_cmul/W1_im" type="array">
+      <obj_property name="ElementShortName">W1_im[0:31][16:0]</obj_property>
+      <obj_property name="ObjectShortName">W1_im[0:31][16:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider60">
+      <obj_property name="label">IFFT</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ifft_out_valid" type="logic">
+      <obj_property name="ElementShortName">ifft_out_valid</obj_property>
+      <obj_property name="ObjectShortName">ifft_out_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ifft_out_start" type="logic">
+      <obj_property name="ElementShortName">ifft_out_start</obj_property>
+      <obj_property name="ObjectShortName">ifft_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ifft_out_I" type="array">
+      <obj_property name="ElementShortName">ifft_out_I[8:0]</obj_property>
+      <obj_property name="ObjectShortName">ifft_out_I[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ifft_out_Q" type="array">
+      <obj_property name="ElementShortName">ifft_out_Q[8:0]</obj_property>
+      <obj_property name="ObjectShortName">ifft_out_Q[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider721">
+      <obj_property name="label">DISCARD N</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/samp_valid" type="logic">
+      <obj_property name="ElementShortName">samp_valid</obj_property>
+      <obj_property name="ObjectShortName">samp_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/samp_start" type="logic">
+      <obj_property name="ElementShortName">samp_start</obj_property>
+      <obj_property name="ObjectShortName">samp_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/eff_samp" type="array">
+      <obj_property name="ElementShortName">eff_samp[4:0]</obj_property>
+      <obj_property name="ObjectShortName">eff_samp[4:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/i_yI" type="array">
+      <obj_property name="ElementShortName">i_yI[8:0]</obj_property>
+      <obj_property name="ObjectShortName">i_yI[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/o_yI" type="array">
+      <obj_property name="ElementShortName">o_yI[8:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yI[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/i_yQ" type="array">
+      <obj_property name="ElementShortName">i_yQ[8:0]</obj_property>
+      <obj_property name="ObjectShortName">i_yQ[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_dn/o_yQ" type="array">
+      <obj_property name="ElementShortName">o_yQ[8:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yQ[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider802">
+      <obj_property name="label">Slicer QPSK</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dn_out_valid" type="logic">
+      <obj_property name="ElementShortName">dn_out_valid</obj_property>
+      <obj_property name="ObjectShortName">dn_out_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sl_out_valid" type="logic">
+      <obj_property name="ElementShortName">sl_out_valid</obj_property>
+      <obj_property name="ObjectShortName">sl_out_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sl_out_start" type="logic">
+      <obj_property name="ElementShortName">sl_out_start</obj_property>
+      <obj_property name="ObjectShortName">sl_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dn_out_start" type="logic">
+      <obj_property name="ElementShortName">dn_out_start</obj_property>
+      <obj_property name="ObjectShortName">dn_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sl_out_yhat_I" type="array">
+      <obj_property name="ElementShortName">sl_out_yhat_I[8:0]</obj_property>
+      <obj_property name="ObjectShortName">sl_out_yhat_I[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sl_out_yhat_Q" type="array">
+      <obj_property name="ElementShortName">sl_out_yhat_Q[8:0]</obj_property>
+      <obj_property name="ObjectShortName">sl_out_yhat_Q[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sl_out_e_I" type="array">
+      <obj_property name="ElementShortName">sl_out_e_I[8:0]</obj_property>
+      <obj_property name="ObjectShortName">sl_out_e_I[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/sl_out_e_Q" type="array">
+      <obj_property name="ElementShortName">sl_out_e_Q[8:0]</obj_property>
+      <obj_property name="ObjectShortName">sl_out_e_Q[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dn_out_I" type="array">
+      <obj_property name="ElementShortName">dn_out_I[8:0]</obj_property>
+      <obj_property name="ObjectShortName">dn_out_I[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dn_out_Q" type="array">
+      <obj_property name="ElementShortName">dn_out_Q[8:0]</obj_property>
+      <obj_property name="ObjectShortName">dn_out_Q[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider81">
+      <obj_property name="label">ZERO_PAD</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/i_valid" type="logic">
+      <obj_property name="ElementShortName">i_valid</obj_property>
+      <obj_property name="ObjectShortName">i_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/i_start" type="logic">
+      <obj_property name="ElementShortName">i_start</obj_property>
+      <obj_property name="ObjectShortName">i_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/i_eI" type="array">
+      <obj_property name="ElementShortName">i_eI[8:0]</obj_property>
+      <obj_property name="ObjectShortName">i_eI[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/i_eQ" type="array">
+      <obj_property name="ElementShortName">i_eQ[8:0]</obj_property>
+      <obj_property name="ObjectShortName">i_eQ[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/o_eI" type="array">
+      <obj_property name="ElementShortName">o_eI[8:0]</obj_property>
+      <obj_property name="ObjectShortName">o_eI[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_zpe/o_eQ" type="array">
+      <obj_property name="ElementShortName">o_eQ[8:0]</obj_property>
+      <obj_property name="ObjectShortName">o_eQ[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider82">
+      <obj_property name="label">FFT_ERROR</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/i_valid" type="logic">
+      <obj_property name="ElementShortName">i_valid</obj_property>
+      <obj_property name="ObjectShortName">i_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/i_start" type="logic">
+      <obj_property name="ElementShortName">i_start</obj_property>
+      <obj_property name="ObjectShortName">i_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/i_xI" type="array">
+      <obj_property name="ElementShortName">i_xI[8:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xI[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/i_xQ" type="array">
+      <obj_property name="ElementShortName">i_xQ[8:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xQ[8:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/o_in_ready" type="logic">
+      <obj_property name="ElementShortName">o_in_ready</obj_property>
+      <obj_property name="ObjectShortName">o_in_ready</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/o_yI" type="array">
+      <obj_property name="ElementShortName">o_yI[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yI[16:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_fft_error/o_yQ" type="array">
+      <obj_property name="ElementShortName">o_yQ[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_yQ[16:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider433">
+      <obj_property name="label">XHIST_DELAY</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_xhd/i_xre" type="array">
+      <obj_property name="ElementShortName">i_xre[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xre[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_xhd/i_xim" type="array">
+      <obj_property name="ElementShortName">i_xim[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xim[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_xhd/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_xhd/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_xhd/o_xre" type="array">
+      <obj_property name="ElementShortName">o_xre[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_xre[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_xhd/o_xim" type="array">
+      <obj_property name="ElementShortName">o_xim[16:0]</obj_property>
+      <obj_property name="ObjectShortName">o_xim[16:0]</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider213">
+      <obj_property name="label">Comparation</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/hb_out_start" type="logic">
+      <obj_property name="ElementShortName">hb_out_start</obj_property>
+      <obj_property name="ObjectShortName">hb_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/ffte_out_start" type="logic">
+      <obj_property name="ElementShortName">ffte_out_start</obj_property>
+      <obj_property name="ObjectShortName">ffte_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/xhd_out_start" type="logic">
+      <obj_property name="ElementShortName">xhd_out_start</obj_property>
+      <obj_property name="ObjectShortName">xhd_out_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/grad_out_start" type="logic">
+      <obj_property name="ElementShortName">grad_out_start</obj_property>
+      <obj_property name="ObjectShortName">grad_out_start</obj_property>
+   </wvobject>
+   <wvobject type="divider" fp_name="divider440">
+      <obj_property name="label">GRADIENTE</obj_property>
+      <obj_property name="DisplayName">label</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/i_valid" type="logic">
+      <obj_property name="ElementShortName">i_valid</obj_property>
+      <obj_property name="ObjectShortName">i_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/i_start" type="logic">
+      <obj_property name="ElementShortName">i_start</obj_property>
+      <obj_property name="ObjectShortName">i_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/o_valid" type="logic">
+      <obj_property name="ElementShortName">o_valid</obj_property>
+      <obj_property name="ObjectShortName">o_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/o_start" type="logic">
+      <obj_property name="ElementShortName">o_start</obj_property>
+      <obj_property name="ObjectShortName">o_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/i_xre" type="array">
+      <obj_property name="ElementShortName">i_xre[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xre[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/i_xim" type="array">
+      <obj_property name="ElementShortName">i_xim[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_xim[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/i_ere" type="array">
+      <obj_property name="ElementShortName">i_ere[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_ere[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/u_grad/i_eim" type="array">
+      <obj_property name="ElementShortName">i_eim[16:0]</obj_property>
+      <obj_property name="ObjectShortName">i_eim[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/grad_out_valid" type="logic">
+      <obj_property name="ElementShortName">grad_out_valid</obj_property>
+      <obj_property name="ObjectShortName">grad_out_valid</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/grad_out_re" type="array">
+      <obj_property name="ElementShortName">grad_out_re[16:0]</obj_property>
+      <obj_property name="ObjectShortName">grad_out_re[16:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_top_global_all/dut/grad_out_im" type="array">
+      <obj_property name="ElementShortName">grad_out_im[16:0]</obj_property>
+      <obj_property name="ObjectShortName">grad_out_im[16:0]</obj_property>
+   </wvobject>
+</wave_config>
